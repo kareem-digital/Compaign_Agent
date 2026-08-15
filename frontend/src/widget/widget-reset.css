@@ -1,0 +1,44 @@
+/* The embed build's stand-in for Tailwind's preflight and daisyUI's `rootcolor`
+ * module, both of which `widget.css` deliberately compiles out because they
+ * reset and repaint a host's whole document.
+ *
+ * This lives in its own file for a mechanical reason: CSS requires every
+ * `@import` to precede other rules, so these declarations cannot sit between
+ * the two Tailwind imports in `widget.css` unless they are themselves an
+ * import. That position is load-bearing — see the ordering note there.
+ *
+ * Written as plain CSS against the theme variables rather than with `@apply`,
+ * so nothing here depends on `@reference` resolution in a secondary file.
+ *
+ * Deliberately unlayered, like everything else in the embed build. */
+
+/* `font-size`/`line-height` restate what preflight puts on `html`, because a
+   host puts its own on `body` and both inherit straight through this root —
+   VowMade's `body{font-size:14px;line-height:17px}` shrank every unsized string
+   in the widget and crushed its leading. `1rem` rather than `16px` so a host
+   that scales the root for accessibility still scales us. */
+.vow-agent-widget {
+  background-color: var(--color-base-100);
+  color: var(--color-base-content);
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Redundant where the host ships Tailwind's preflight, load-bearing where it
+   doesn't: `border-*` utilities set width only and need a style to show. */
+.vow-agent-widget,
+.vow-agent-widget *,
+.vow-agent-widget *::before,
+.vow-agent-widget *::after {
+  box-sizing: border-box;
+  border-width: 0;
+  border-style: solid;
+  border-color: currentColor;
+}
+
+.vow-agent-widget * {
+  scrollbar-color: color-mix(in oklch, currentColor 35%, transparent) transparent;
+}

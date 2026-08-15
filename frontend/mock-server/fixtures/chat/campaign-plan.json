@@ -1,0 +1,14 @@
+{
+  "id": "campaign-plan",
+  "description": "A budgeted campaign brief — the multi-section reply shape the real agent returns.",
+  "priority": 10,
+  "match": { "value": "campaign" },
+  "delayMs": 900,
+  "response": {
+    "status": 200,
+    "body": {
+      "reply": "Here's a first pass at the plan.\n\nBasics\n- Market: UK\n- Budget: £50,000\n- Flight: 1–31 August\n\nInventory\n- ITVX and Channel 4 premium VOD, 60% of budget\n- Long-tail CTV apps, 40%\n\nNext\nTell me which audiences matter most and I'll run a reach forecast.",
+      "stage": "inventory"
+    }
+  }
+}

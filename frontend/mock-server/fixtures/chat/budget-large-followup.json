@@ -1,0 +1,45 @@
+{
+  "id": "budget-large-followup",
+  "description": "The other branch of elc_budget's `next`, so routing by option id is exercised by a real fixture and not only by a unit test.",
+  "match": { "type": "none" },
+  "delayMs": 400,
+  "response": {
+    "status": 200,
+    "body": {
+      "stage": "audiences",
+      "content": [
+        {
+          "type": "text",
+          "text": "{{answer}} — that opens up premium CTV placements.\n\nOne more thing."
+        },
+        {
+          "type": "options",
+          "id": "elc_audience",
+          "prompt": "Which audiences should I prioritise?",
+          "context_label": "Audiences",
+          "select": "multi",
+          "allow_custom": false,
+          "options": [
+            { "id": "opt_abc1", "label": "25–44 ABC1", "value": "25–44 ABC1" },
+            {
+              "id": "opt_retarget",
+              "label": "First-party retargeting",
+              "value": "first-party retargeting pool"
+            },
+            {
+              "id": "opt_sport",
+              "label": "Live sport viewers",
+              "value": "live sport viewers"
+            },
+            {
+              "id": "opt_premium",
+              "label": "Premium film and drama",
+              "value": "premium film and drama viewers"
+            }
+          ],
+          "next": "audience-followup"
+        }
+      ]
+    }
+  }
+}

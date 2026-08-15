@@ -1,0 +1,14 @@
+image:
+  backendRepository: vowagent-dev-backend
+  frontendRepository: vowagent-dev-frontend
+
+deploymentEnvironment: staging
+
+backend:
+  runtimeEnvironment: staging
+  corsOrigins:
+    - https://staging.vowmade.dev
+
+ingress:
+  host: staging.vowmade.dev
+  manageDns: false

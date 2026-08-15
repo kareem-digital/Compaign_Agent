@@ -1,0 +1,13 @@
+{
+  "id": "default",
+  "description": "Fallback when no other fixture matches the message.",
+  "match": { "type": "default" },
+  "delayMs": 600,
+  "response": {
+    "status": 200,
+    "body": {
+      "reply": "I don't have a scripted answer for that yet. Add a fixture in mock-server/fixtures/chat/ to give this message a reply.",
+      "stage": null
+    }
+  }
+}

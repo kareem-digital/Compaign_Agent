@@ -1,0 +1,11 @@
+{
+  "id": "error-server",
+  "description": "Drives the UI's error path. Say \"simulate server error\" to trigger.",
+  "priority": 100,
+  "match": { "value": "simulate server error" },
+  "delayMs": 500,
+  "response": {
+    "status": 500,
+    "body": { "detail": "The planning agent failed (simulated by mock-server)" }
+  }
+}

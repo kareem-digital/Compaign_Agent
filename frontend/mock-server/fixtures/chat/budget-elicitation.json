@@ -1,0 +1,37 @@
+{
+  "id": "budget-elicitation",
+  "description": "Options elicitation: a single-select budget band with a custom escape hatch. `next` routes the follow-up by the option chosen. `context_label` and `value` never reach the client.",
+  "priority": 20,
+  "match": { "value": "budget" },
+  "delayMs": 500,
+  "response": {
+    "status": 200,
+    "body": {
+      "stage": "basics",
+      "content": [
+        {
+          "type": "text",
+          "text": "Happy to help plan that. One quick question first."
+        },
+        {
+          "type": "options",
+          "id": "elc_budget",
+          "prompt": "What's your budget range?",
+          "context_label": "Budget",
+          "select": "single",
+          "allow_custom": true,
+          "custom_placeholder": "Something else…",
+          "options": [
+            { "id": "opt_lt_1k", "label": "Under $1k", "value": "under $1k" },
+            { "id": "opt_1k_3k", "label": "$1k – $3k", "value": "$1k – $3k" },
+            { "id": "opt_gt_3k", "label": "Over $3k", "value": "over $3k" }
+          ],
+          "next": {
+            "opt_gt_3k": "budget-large-followup",
+            "default": "budget-followup"
+          }
+        }
+      ]
+    }
+  }
+}

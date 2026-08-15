@@ -1,0 +1,6 @@
+{
+  "watch": ["src", "fixtures"],
+  "ext": "js,json",
+  "exec": "node src/index.js",
+  "delay": 200
+}

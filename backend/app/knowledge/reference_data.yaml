@@ -1,0 +1,63 @@
+# Reference values from VOW's platform.
+#
+# TMP-22: a local file is a stand-in. These are facts about VOW, so they should
+# come from VOW - via MCP once the server exists, or the database once we have
+# access. Edit `reference.py` to change where they load from; nothing that reads
+# them needs to know.
+#
+# Converges with KNW-01 (the grounded registry, Vishal's lane). That holds
+# thousands of entity records - deal IDs, audience sets, ASINs. This holds a
+# handful of enumerations. Same idea at different scale, and they should be
+# reconciled rather than left as two registries. See PROVISIONAL_DECISIONS.md.
+
+markets:
+  - value: GB
+    label: United Kingdom
+    currency: GBP
+  - value: US
+    label: United States
+    currency: USD
+  - value: FR
+    label: France
+    currency: EUR
+  - value: DE
+    label: Germany
+    currency: EUR
+
+# VOW sells these four creative lengths and nothing else, which is why the
+# interface offers them rather than accepting free text.
+durations: ["10", "15", "20", "30"]
+
+# CTV providers, their tier, and the ways people refer to them.
+#
+# `aliases` exist because a trader writes "prime", "Prime Video" or "amazon
+# prime" and means the same thing. Matched case-insensitively on word
+# boundaries, so "us" inside "audience" cannot match.
+#
+# "amazon" is deliberately an alias for Prime Video: in a CTV planning
+# conversation that is the sensible reading. The confirmation step gives the
+# trader a chance to correct it.
+providers:
+  - value: Prime Video
+    aliases: [prime video, prime, amazon prime, amazon]
+    tier: AMAZON_OWNED
+  - value: Netflix
+    aliases: [netflix]
+    tier: THIRD_PARTY_PRECURATED
+  - value: Disney+
+    aliases: [disney+, disney plus, disney]
+    tier: THIRD_PARTY_NEEDS_CURATION
+  - value: Hulu
+    aliases: [hulu]
+    tier: THIRD_PARTY_PRECURATED
+
+inventory_tiers:
+  - value: AMAZON_OWNED
+    label: Amazon-owned
+    note: Reach forecast available
+  - value: THIRD_PARTY_PRECURATED
+    label: Third-party, pre-curated
+    note: No reach forecast
+  - value: THIRD_PARTY_NEEDS_CURATION
+    label: Third-party, needs curation
+    note: Rate card only

@@ -1,0 +1,18 @@
+{
+  "name": "vow-agent-mock-server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Fixture-driven stand-in for the FastAPI chat backend, for frontend development.",
+  "scripts": {
+    "dev": "nodemon",
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}

@@ -1,0 +1,48 @@
+/* Standalone SPA entry. This file owns the whole document, so it takes
+ * Tailwind's preflight and daisyUI's root theming as-is. The embedded build
+ * deliberately does not — see `src/widget/widget.css`. */
+
+/* Self-hosted Geist, replacing the old app's `next/font/google` loader. */
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+@import "tailwindcss";
+@import "./styles/themes.css";
+@import "./styles/tokens.css";
+
+/* `themes: false` is load-bearing, not a micro-optimization. The two blocks in
+ * `styles/themes.css` override daisyUI's *built-in* `light`/`dark` by name, and
+ * daisyUI emits the built-ins into the same selectors — but *after* the
+ * overrides, so the stock palette silently wins on equal specificity. Disabling
+ * the built-ins leaves only the customized pair; unspecified semantic colors
+ * (neutral/info/success/warning/error) are still inherited. */
+@plugin "daisyui" {
+  themes: false;
+  logs: false;
+}
+
+@source "./**/*.{ts,tsx}";
+
+@theme {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, monospace;
+}
+
+@layer base {
+  /* Percentage, not px, so a browser accessibility font setting still
+     multiplies through. Tune `--app-scale` in `styles/tokens.css`. */
+  html {
+    @apply h-full;
+    font-size: calc(100% * var(--app-scale));
+  }
+
+  /* Both are flex columns so the widget's `flex-1` has a chain of growable
+     parents all the way up to the viewport. */
+  body,
+  #root {
+    @apply flex h-full min-h-0 flex-col;
+  }
+
+  body {
+    @apply font-sans antialiased;
+  }
+}

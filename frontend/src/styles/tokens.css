@@ -1,0 +1,67 @@
+/* Theme-invariant brand scale — type steps, measures, tracking and elevation
+ * taken from the "Start planning" design frame. Colours do not belong here;
+ * they are per-theme and live in `themes.css`.
+ *
+ * Imported by *both* CSS entry points (`src/index.css` and
+ * `src/widget/widget.css`) so the two can never disagree on a token. In
+ * `widget.css` it must sit before `tailwindcss/utilities.css`, and it carries
+ * no `@layer` — the embed build ships none.
+ */
+
+@theme {
+  /* App-wide scale knob, consumed by `html` in `index.css`. Everything below is
+     rem, so this one value resizes type, spacing, radii and measures together.
+     1 = 16px (browser default); 0.9375 = 15px, 0.875 = 14px, 0.8125 = 13px. */
+  --app-scale: 1;
+
+  /* Hero title. Line height and tracking ride along with the step so the
+     display face can never be set without them. */
+  --text-display: 2.5rem;
+  --text-display--line-height: 1.1;
+  --text-display--letter-spacing: -0.02em;
+
+  /* Message/body copy — the one step that replaces the duplicated 0.9375rem
+     literals the architecture work-list flags. */
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.6;
+
+  /* Chips, pills and other inline controls. */
+  --text-control: 0.8125rem;
+  --text-control--line-height: 1;
+
+  /* Hints, format lists and the disclaimer line. */
+  --text-note: 0.78125rem;
+  --text-note--line-height: 1.4;
+
+  /* Stage-card and panel titles. */
+  --text-card-title: 0.90625rem;
+  --text-card-title--line-height: 1;
+
+  /* Status badges and the uppercase property labels inside a stage card. */
+  --text-micro: 0.65625rem;
+  --text-micro--line-height: 1.3;
+
+  /* Uppercase section labels. */
+  --tracking-label: 0.12em;
+
+  /* Named steps rather than mutations of the stock `--container-*` scale, which
+     also backs `max-w-*`. */
+  --container-composer: 45rem;
+  --container-lede: 35rem;
+  /* The three fixed measures of the 13a workspace: the strategy panel's width,
+     the transcript's reading measure, and the composer dock that sits under it. */
+  --container-strategy: 29.375rem;
+  --container-transcript: 41.25rem;
+  --container-dock: 45.25rem;
+
+  /* Both workspace headers — the chat console's and the strategy panel's — are
+     pinned to this so their bottom rules meet across the divider. Their content
+     differs (a title vs. a title, badge and progress bar), so a shared height is
+     the only thing that keeps them aligned. */
+  --workspace-header-height: 3.5rem;
+
+  /* Navy-tinted lift under the composer card. */
+  --shadow-lifted: 0 10px 30px oklch(33.2% 0.135 271 / 0.08);
+  /* The near-flat lift that separates a stage card from the panel ground. */
+  --shadow-card: 0 1px 2px oklch(33.2% 0.135 271 / 0.05);
+}

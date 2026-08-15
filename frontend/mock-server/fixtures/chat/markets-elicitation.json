@@ -1,0 +1,57 @@
+{
+  "id": "markets-elicitation",
+  "description": "Multi-select elicitation from design slide 13a. `badge` is presentational; `context_label` and `value` are server-side and never reach the client.",
+  "priority": 30,
+  "match": { "type": "regex", "value": "\\b(market|markets|geo|geos|countries)\\b" },
+  "delayMs": 500,
+  "response": {
+    "status": 200,
+    "body": {
+      "stage": "basics",
+      "content": [
+        {
+          "type": "text",
+          "text": "Found it — oral care, 14 ASINs on Amazon."
+        },
+        {
+          "type": "options",
+          "id": "elc_markets",
+          "prompt": "Which markets should it run in?",
+          "context_label": "Markets",
+          "select": "multi",
+          "allow_custom": true,
+          "custom_placeholder": "Another market…",
+          "options": [
+            {
+              "id": "opt_uk",
+              "label": "UK",
+              "description": "Ran last year · 1.4M addressable on Streaming TV",
+              "badge": "Suggested",
+              "value": "United Kingdom"
+            },
+            {
+              "id": "opt_usa",
+              "label": "USA",
+              "description": "Ran last year · deepest inventory, highest CPMs",
+              "badge": "Suggested",
+              "value": "United States"
+            },
+            {
+              "id": "opt_fr",
+              "label": "France",
+              "description": "New market · needs its own creative in French",
+              "value": "France"
+            },
+            {
+              "id": "opt_de",
+              "label": "Germany",
+              "description": "New market · strong Prime Video base",
+              "value": "Germany"
+            }
+          ],
+          "next": "creative-length-elicitation"
+        }
+      ]
+    }
+  }
+}

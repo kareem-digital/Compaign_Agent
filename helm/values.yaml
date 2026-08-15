@@ -1,0 +1,54 @@
+image:
+  registry: ""
+  tag: ""
+  pullPolicy: Always
+  backendRepository: ""
+  frontendRepository: ""
+
+deploymentEnvironment: ""
+
+backend:
+  replicas: 1
+  port: 8000
+  runtimeEnvironment: ""
+  apiPrefix: /agent-api/v1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  corsOrigins: []
+
+frontend:
+  replicas: 1
+  port: 8080
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+ingress:
+  className: alb
+  host: ""
+  certificateArn: ""
+  groupName: vowmade
+  manageDns: false
+  backendPath: /agent-api/v1
+  frontendPaths:
+    - /agent
+    - /mfe
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80,"HTTPS":443}]'
+    alb.ingress.kubernetes.io/backend-protocol: HTTP
+    alb.ingress.kubernetes.io/healthcheck-port: traffic-port
+    alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=30
+    external-dns.alpha.kubernetes.io/cloudflare-proxied: "false"

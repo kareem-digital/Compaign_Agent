@@ -1,0 +1,13 @@
+{
+  "id": "greeting",
+  "description": "Any greeting-ish opener.",
+  "match": { "type": "regex", "value": "\\b(hello|hi|hey)\\b" },
+  "delayMs": 400,
+  "response": {
+    "status": 200,
+    "body": {
+      "reply": "Hi — I'm the VOW planning agent. Tell me the market, budget and flight dates and I'll draft a CTV plan.",
+      "stage": "basics"
+    }
+  }
+}

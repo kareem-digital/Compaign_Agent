@@ -1,0 +1,75 @@
+{
+  "config_version": 1,
+  "types": [
+    {
+      "key": "location",
+      "label": "Location",
+      "cardinality": "multi",
+      "required": false,
+      "strategy_field": "locations",
+      "source": {
+        "tool": "vow.list_locations",
+        "args": { "market": "{market}" },
+        "values_path": "results",
+        "id_field": "id",
+        "label_field": "name"
+      }
+    },
+    {
+      "key": "instream_position",
+      "label": "Instream position",
+      "cardinality": "single",
+      "required": false,
+      "strategy_field": "instream_positions",
+      "source": {
+        "tool": "vow.get_targeting_options",
+        "args": { "type": "instream_position", "market": "{market}" },
+        "values_path": "results",
+        "id_field": "id",
+        "label_field": "label"
+      }
+    },
+    {
+      "key": "content_category_exclusion",
+      "label": "Content category exclusions",
+      "cardinality": "multi",
+      "required": false,
+      "strategy_field": "content_category_exclusions",
+      "source": {
+        "tool": "vow.get_targeting_options",
+        "args": { "type": "content_category_exclusion", "market": "{market}" },
+        "values_path": "results",
+        "id_field": "id",
+        "label_field": "label"
+      }
+    },
+    {
+      "key": "device_type",
+      "label": "Device type",
+      "cardinality": "multi",
+      "required": false,
+      "strategy_field": "device_types",
+      "source": {
+        "tool": "vow.get_targeting_options",
+        "args": { "type": "device_type", "market": "{market}" },
+        "values_path": "results",
+        "id_field": "id",
+        "label_field": "label"
+      }
+    },
+    {
+      "key": "mobile_environment",
+      "label": "Mobile environment",
+      "cardinality": "single",
+      "required": false,
+      "strategy_field": "mobile_environments",
+      "source": {
+        "tool": "vow.get_targeting_options",
+        "args": { "type": "mobile_environment", "market": "{market}" },
+        "values_path": "results",
+        "id_field": "id",
+        "label_field": "label"
+      }
+    }
+  ]
+}

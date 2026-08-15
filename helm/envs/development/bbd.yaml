@@ -1,0 +1,15 @@
+image:
+  backendRepository: vowagent-dev-backend
+  frontendRepository: vowagent-dev-frontend
+
+deploymentEnvironment: bbd
+
+backend:
+  # BBD uses mock integrations and the development advertiser fallback.
+  runtimeEnvironment: local
+  corsOrigins: []
+
+ingress:
+  # The PR-specific hostname is injected by the deployment workflow.
+  host: ""
+  manageDns: true

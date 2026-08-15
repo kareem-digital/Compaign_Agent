@@ -1,0 +1,13 @@
+{
+  "id": "creative-length-followup",
+  "description": "Plain-text close with no further question — the case that proves `resolved_elicitations` is load-bearing: without it the answered card would stay pending and tappable. {{answer}} is server-rendered, which proves ids resolved to values server-side.",
+  "match": { "type": "none" },
+  "delayMs": 600,
+  "response": {
+    "status": 200,
+    "body": {
+      "stage": "inventory",
+      "reply": "Saved — {{answer}}.\n\nThat completes basic details. Next I'll pull the Amazon DSP CTV inventory that clears at that length and show what it forecasts."
+    }
+  }
+}

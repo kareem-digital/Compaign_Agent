@@ -1,0 +1,61 @@
+﻿# Local development stack.
+#   docker compose up --build
+
+services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      ENVIRONMENT: local
+      DEBUG: "true"
+      LOG_LEVEL: DEBUG
+      LOG_FILE: ""
+      DATABASE_URL: postgresql+asyncpg://vowagent:vowagent@db:5432/vowagent
+    volumes:
+      - ./backend/app:/app/app
+    depends_on:
+      db:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: http://localhost:8000/api/v1
+    # The bundle is baked at image-build time, so without this a plain
+    # `up` reuses whatever image already exists and serves stale code.
+    # Layer caching keeps a no-op rebuild cheap.
+    pull_policy: build
+    ports:
+      - "3000:8080"
+    depends_on:
+      - api
+
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: vowagent
+      POSTGRES_PASSWORD: vowagent
+      POSTGRES_DB: vowagent
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vowagent"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+volumes:
+  pgdata:

@@ -1,0 +1,90 @@
+# Agentic VOW - CTV planning policy
+#
+# Deterministic guardrails evaluated before any call reaches VOW. Enforced in
+# app/governance/agt.py, which sits inside MCPClient.call_tool() - the single
+# door every VOW call passes through.
+#
+# ---------------------------------------------------------------------------
+# HOW TO EDIT THIS FILE SAFELY
+# ---------------------------------------------------------------------------
+# Two rules of the condition language, both verified against AGT 4.1.0 by
+# experiment. Ignoring either produces a policy that looks correct and enforces
+# nothing.
+#
+#   1. NEVER use `not in`. It does not raise - it silently never matches, so a
+#      rule built on it permits everything it was written to forbid. The same
+#      is true of `not (x in [...])`. Verified working: == != > in and
+#
+#   2. Write ALLOW-lists, never deny-lists. With `default_action: deny`,
+#      anything a rule does not explicitly permit is refused. This also means a
+#      MISSING field fails closed: if `action.total_budget` is absent, the
+#      condition is false, nothing allows the call, and it is denied. A
+#      deny-list would have let that same call through.
+#
+# Every rule below is therefore an `allow`, and every restriction is expressed
+# as a condition that must hold for the allow to apply.
+# ---------------------------------------------------------------------------
+#
+# PLACEHOLDER VALUES: the budget cap and market list are provisional, pending
+# open question A3 (guardrail values, owed by the client). They are marked
+# below. This file is the clearest way to ask for them - four specific blanks
+# rather than a request for "guardrail values".
+
+apiVersion: governance.toolkit/v1
+name: agentic-vow-ctv
+default_action: deny
+
+rules:
+  # -------------------------------------------------------------------------
+  # Planning. Costless and reversible - these only read from VOW. Everything
+  # the agent does today falls here.
+  # -------------------------------------------------------------------------
+  # The last three are the grounded registry's sources (KNW-02). They are reads of
+  # reference data - what markets exist, which tier a provider is, what contextual
+  # categories a market has - so they belong in this rule and not a looser one.
+  #
+  # Adding them here was a deliberate step, and it is worth recording why: the three
+  # were denied on their first call with "No matching rules, using default". That is
+  # the policy working. A tool the agent gains has to be allowed on purpose, never by
+  # a wildcard, which is the whole reason the default is deny.
+  - name: allow-planning-tools
+    condition: >-
+      action.type in ['vow.list_deals', 'vow.get_ctv_rate_card',
+      'vow.suggest_audiences', 'vow.reach_forecast',
+      'vow.get_deal_filter_properties', 'vow.list_inventory_sources',
+      'vow.list_product_categories', 'vow.list_locations',
+      'vow.get_targeting_options', 'vow.check_strategy_name_uniqueness']
+    action: allow
+
+  # -------------------------------------------------------------------------
+  # Creating a strategy. The first action that makes something real in VOW.
+  # Permitted only when every condition holds at once.
+  #
+  # NOTE: vow.create_strategy is not implemented yet. This rule is written now
+  # so the guardrail exists before the action does, rather than after.
+  # -------------------------------------------------------------------------
+  - name: allow-create-strategy
+    condition: >-
+      action.type == 'vow.create_strategy'
+      and action.approval_status == 'APPROVED'
+      and action.market in ['GB', 'US', 'FR', 'DE']
+      and action.inventory_tier in ['AMAZON_OWNED', 'THIRD_PARTY_PRECURATED',
+      'THIRD_PARTY_NEEDS_CURATION']
+    action: allow
+
+  # -------------------------------------------------------------------------
+  # Activation. The single action in the whole flow that commits real spend.
+  #
+  # `total_budget > 0` is not redundant: it forces the field to be present and
+  # positive. Without it, a call that omitted the budget entirely would satisfy
+  # the cap by default.
+  #
+  # PLACEHOLDER: 100000 pending A3.
+  # -------------------------------------------------------------------------
+  - name: allow-activate-within-cap
+    condition: >-
+      action.type == 'vow.activate_strategy'
+      and action.approval_status == 'APPROVED'
+      and action.total_budget > 0
+      and action.total_budget <= 100000
+    action: allow

@@ -1,0 +1,10 @@
+{
+  "id": "error-rate-limit",
+  "description": "Drives the UI's error path. Say \"simulate rate limit\" to trigger.",
+  "priority": 100,
+  "match": { "value": "simulate rate limit" },
+  "response": {
+    "status": 429,
+    "body": { "detail": "Rate limit exceeded (simulated by mock-server)" }
+  }
+}

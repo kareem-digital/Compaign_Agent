@@ -1,0 +1,36 @@
+{
+  "id": "onboarding-sequence",
+  "description": "Scripted multi-turn flow. Once triggered, the next messages in the same session walk the stages regardless of what is typed.",
+  "priority": 50,
+  "match": { "value": "start onboarding" },
+  "repeatLast": true,
+  "sequence": [
+    {
+      "response": {
+        "status": 200,
+        "body": { "reply": "Let's start with the basics — which market and what budget?", "stage": "basics" }
+      }
+    },
+    {
+      "delayMs": 700,
+      "response": {
+        "status": 200,
+        "body": { "reply": "Got it. I'd split that across premium VOD and long-tail CTV. Which audiences should I prioritise?", "stage": "inventory" }
+      }
+    },
+    {
+      "delayMs": 700,
+      "response": {
+        "status": 200,
+        "body": { "reply": "Audiences locked in: 25–44 ABC1, plus a retargeting pool from your first-party segment.", "stage": "audiences" }
+      }
+    },
+    {
+      "delayMs": 900,
+      "response": {
+        "status": 200,
+        "body": { "reply": "Forecast: ~2.4M impressions, 780K unique reach, 3.1 average frequency. Ready for your approval.", "stage": "forecast" }
+      }
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+/* VOW brand themes, shared by both CSS entry points — `src/index.css`
+ * (standalone) and `src/widget/widget.css` (embedded). Kept in one file so the
+ * widget can never drift from the app it was extracted out of.
+ *
+ * These override daisyUI's *built-in* `light` and `dark` rather than declaring
+ * new theme names, which is what lets daisyUI keep supplying the semantic
+ * colors this brand doesn't define (neutral/info/success/warning/error).
+ *
+ * Radius token names changed with daisyUI 5: `--rounded-box`/`--rounded-btn`/
+ * `--rounded-badge` became `--radius-box`/`--radius-field`/`--radius-selector`.
+ * The values carry over unchanged. daisyUI 5 emits `rounded-box`,
+ * `rounded-field` and `rounded-selector` utilities from these natively, so the
+ * `borderRadius` bridge the old `tailwind.config.ts` carried is gone.
+ */
+
+/* `accent` and `secondary` are the brand mark's two colours and carry the *same*
+ * values in both blocks: a logo that inverts with the theme is a bug, and using
+ * the two otherwise-unused daisyUI slots avoids a parallel colour namespace.
+ *
+ * The radii map the design's three corner sizes — 16 / 12 / 10px — onto
+ * `rounded-box` / `rounded-field` / `rounded-selector`, so no fourth radius
+ * token is needed.
+ */
+
+@plugin "daisyui/theme" {
+  name: "light";
+  default: true;
+  color-scheme: light;
+
+  --color-base-100: oklch(100% 0 0);
+  --color-base-200: oklch(97.8% 0.007 286);
+  --color-base-300: oklch(88.2% 0.036 294);
+  --color-base-content: oklch(34.7% 0.152 268);
+  --color-primary: oklch(50.3% 0.209 270);
+  --color-primary-content: oklch(98% 0.01 270);
+  --color-secondary: oklch(62.5% 0.22 350);
+  --color-secondary-content: oklch(98% 0.01 350);
+  --color-accent: oklch(49.1% 0.241 293);
+  --color-accent-content: oklch(98% 0.01 293);
+
+  --radius-box: 1rem;
+  --radius-field: 0.75rem;
+  --radius-selector: 0.625rem;
+}
+
+/* The design is light-only; this pair is re-derived on the same hues rather
+   than designed. */
+@plugin "daisyui/theme" {
+  name: "dark";
+  prefersdark: true;
+  color-scheme: dark;
+
+  --color-base-100: oklch(21% 0.02 275);
+  --color-base-200: oklch(17% 0.018 275);
+  --color-base-300: oklch(28% 0.03 275);
+  --color-base-content: oklch(93% 0.012 275);
+  --color-primary: oklch(66% 0.19 270);
+  --color-primary-content: oklch(16% 0.04 270);
+  --color-secondary: oklch(62.5% 0.22 350);
+  --color-secondary-content: oklch(16% 0.04 350);
+  --color-accent: oklch(49.1% 0.241 293);
+  --color-accent-content: oklch(98% 0.01 293);
+
+  --radius-box: 1rem;
+  --radius-field: 0.75rem;
+  --radius-selector: 0.625rem;
+}

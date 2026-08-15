@@ -1,0 +1,93 @@
+{
+    "session_id": "0022c36a-4c3a-454c-b046-ff4276e573b8",
+    "stage": "basics",
+    "reply": "Creative length drives both the CPM and how much of the plan's inventory you can buy.",
+    "message": {
+        "id": "msg_a11692e0-7b59-44f5-9fb4-ff53aaef0387",
+        "role": "assistant",
+        "content": [
+            {
+                "type": "text",
+                "text": "Creative length drives both the CPM and how much of the plan's inventory you can buy."
+            },
+            {
+                "type": "options",
+                "id": "elc_creative_length.48829ca9",
+                "prompt": "How long is the creative?",
+                "select": "single",
+                "allow_custom": true,
+                "custom_placeholder": "Answer in your own words…",
+                "status": "pending",
+                "options": [
+                    {
+                        "id": "opt_10s",
+                        "label": "10 seconds",
+                        "description": "Cheapest CPM — most impressions for the budget",
+                        "badge": "Suggested"
+                    },
+                    {
+                        "id": "opt_15s",
+                        "label": "15 seconds",
+                        "description": "Standard Amazon length · every deal in the plan accepts it",
+                        "badge": null
+                    },
+                    {
+                        "id": "opt_20s",
+                        "label": "20 seconds",
+                        "description": "More room for the message · slightly narrower inventory",
+                        "badge": null
+                    },
+                    {
+                        "id": "opt_30s",
+                        "label": "30 seconds",
+                        "description": "Full story · highest CPM, lowest frequency",
+                        "badge": null
+                    }
+                ],
+                "answer": null
+            }
+        ]
+    },
+    "resolved_elicitations": [
+        {
+            "type": "options",
+            "id": "elc_markets.f05c048c",
+            "prompt": "Which markets should it run in?",
+            "select": "multi",
+            "allow_custom": true,
+            "custom_placeholder": "Another market…",
+            "status": "answered",
+            "options": [
+                {
+                    "id": "opt_uk",
+                    "label": "UK",
+                    "description": "Ran last year · 1.4M addressable on Streaming TV",
+                    "badge": "Suggested"
+                },
+                {
+                    "id": "opt_usa",
+                    "label": "USA",
+                    "description": "Ran last year · deepest inventory, highest CPMs",
+                    "badge": "Suggested"
+                },
+                {
+                    "id": "opt_fr",
+                    "label": "France",
+                    "description": "New market · needs its own creative in French",
+                    "badge": null
+                },
+                {
+                    "id": "opt_de",
+                    "label": "Germany",
+                    "description": "New market · strong Prime Video base",
+                    "badge": null
+                }
+            ],
+            "answer": {
+                "selected_option_ids": [],
+                "custom_text": "markets",
+                "answered_at": "2026-08-14T05:33:48.095Z"
+            }
+        }
+    ]
+}

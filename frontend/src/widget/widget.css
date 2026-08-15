@@ -1,0 +1,24 @@
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+@import "tailwindcss/theme.css";
+@import "../styles/themes.css";
+@import "../styles/tokens.css";
+@import "./widget-reset.css";
+@import "tailwindcss/utilities.css";
+
+/* `themes: false` — see the note in `src/index.css`; without it daisyUI's stock
+ * light/dark are emitted after the brand overrides and win. */
+@plugin "daisyui" {
+  themes: false;
+  exclude: rootcolor;
+  logs: false;
+}
+
+/* This file lives in `src/widget/`, but the classes to scan for are spread
+   across `src/components/**` and `src/hooks/**` too. */
+@source "../**/*.{ts,tsx}";
+
+@theme {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, monospace;
+}

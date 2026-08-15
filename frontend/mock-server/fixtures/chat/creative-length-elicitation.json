@@ -1,0 +1,56 @@
+{
+  "id": "creative-length-elicitation",
+  "description": "Single-select elicitation from design slide 13a. Reachable both by text and via elc_markets' `next`, so the single-select can be demoed on its own.",
+  "priority": 20,
+  "match": { "type": "regex", "value": "\\b(creative|length|duration)\\b" },
+  "delayMs": 450,
+  "response": {
+    "status": 200,
+    "body": {
+      "stage": "basics",
+      "content": [
+        {
+          "type": "text",
+          "text": "Creative length drives both the CPM and how much of the plan's inventory you can buy."
+        },
+        {
+          "type": "options",
+          "id": "elc_creative_length",
+          "prompt": "How long is the creative?",
+          "context_label": "Creative length",
+          "select": "single",
+          "allow_custom": true,
+          "custom_placeholder": "Answer in your own words…",
+          "options": [
+            {
+              "id": "opt_10s",
+              "label": "10 seconds",
+              "description": "Cheapest CPM — most impressions for the budget",
+              "badge": "Suggested",
+              "value": "10 seconds"
+            },
+            {
+              "id": "opt_15s",
+              "label": "15 seconds",
+              "description": "Standard Amazon length · every deal in the plan accepts it",
+              "value": "15 seconds"
+            },
+            {
+              "id": "opt_20s",
+              "label": "20 seconds",
+              "description": "More room for the message · slightly narrower inventory",
+              "value": "20 seconds"
+            },
+            {
+              "id": "opt_30s",
+              "label": "30 seconds",
+              "description": "Full story · highest CPM, lowest frequency",
+              "value": "30 seconds"
+            }
+          ],
+          "next": "creative-length-followup"
+        }
+      ]
+    }
+  }
+}

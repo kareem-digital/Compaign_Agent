@@ -1,0 +1,13 @@
+{
+  "id": "audience-followup",
+  "description": "Closes the flow with no further question, which is the case that proves `resolved_elicitations` is load-bearing: without it the answered block would stay pending and tappable.",
+  "match": { "type": "none" },
+  "delayMs": 700,
+  "response": {
+    "status": 200,
+    "body": {
+      "stage": "forecast",
+      "reply": "Locked in — {{answer}}.\n\nForecast: ~2.4M impressions, 780K unique reach, 3.1 average frequency across Amazon DSP CTV inventory."
+    }
+  }
+}

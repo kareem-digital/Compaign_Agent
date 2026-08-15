@@ -1,0 +1,22 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic>=2.9.0
+pydantic-settings>=2.6.0
+httpx>=0.27.0
+python-dotenv>=1.0.0
+langgraph>=1.2.9
+langchain-core>=1.5.1
+langchain-openai>=0.3.0
+
+# --- Governance (AGT) ---
+# Exact pins, not ranges: this is public-preview software and ADR-001 requires
+# a pinned version.
+#
+# Both lines are needed. `agent-governance-toolkit` is a meta-package that on
+# its own installs almost nothing - the policy engine lives in `-core`, which
+# is what provides `agentmesh.governance`. The documented `[full]` extra does
+# NOT work: the package never declares `Provides-Extra`, so pip warns, installs
+# nothing, and exits 0. Naming the distributions explicitly is the only
+# reliable way, and getting this wrong fails at import time in CI.
+agent-governance-toolkit==4.1.0
+agent-governance-toolkit-core==4.1.0

@@ -1,0 +1,28 @@
+-r requirements.txt
+
+# Core testing
+pytest>=8.3.0
+pytest-asyncio>=0.24.0
+pytest-mock>=3.14.0
+pytest-cov>=5.0.0
+pytest-html>=4.1.0
+
+# Reporting
+allure-pytest>=2.13.5
+
+# API / Protocol
+jsonschema>=4.23.0
+
+# Performance
+locust>=2.31.0
+
+# AI / LLM evaluation -
+# Promptfoo (prompt regression) is a Node CLI, invoked from CI, not listed here.
+deepeval>=2.0.0
+ragas>=0.2.0
+
+# Code quality / static analysis
+ruff>=0.7.0
+mypy>=1.13.0
+bandit>=1.7.10
+pylint>=3.3.0
