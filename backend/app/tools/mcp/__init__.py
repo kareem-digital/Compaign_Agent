@@ -6,7 +6,11 @@ run `list_tools()` and reconcile this list against it - that reconciliation is
 the whole integration risk of moving to MCP.
 """
 
-from app.tools.mcp.client import MCPClient, create_mcp_client
+from app.tools.mcp.client import (
+    MCPClient,
+    StreamableHTTPMCPClient,
+    create_mcp_client,
+)
 
 
 class VowTools:
@@ -60,4 +64,4 @@ class VowTools:
         )
 
 
-__all__ = ["MCPClient", "VowTools", "create_mcp_client"]
+__all__ = ["MCPClient", "StreamableHTTPMCPClient", "VowTools", "create_mcp_client"]

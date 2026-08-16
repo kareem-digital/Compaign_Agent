@@ -14,30 +14,40 @@ keeps the three policies that framework got right:
 The policy lives in `MCPClient.call_tool`. Transports implement only the two
 `_raw` methods, so a new transport cannot accidentally skip a policy.
 
-Scoping note: MCP has no request headers, so the advertiser is injected as a
-tool *argument* (`advertiser_id`). If VOW's server names it differently, change
-`ADVERTISER_ARG` here and nowhere else.
+The VOW transport carries advertiser context in `Vowmade-Advertiser-Id`. The
+argument is still added before governance checks so existing policy rules and
+the in-process mock see the complete scoped action; the HTTP transport removes
+that internal-only argument before sending the MCP tool payload.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
+import uuid
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
+from typing import TypeVar
+
+import httpx
 
 from app.config import Settings, get_settings
 from app.core.exceptions import (
     AdvertiserContextMissingError,
     MCPError,
+    MCPToolNotFoundError,
     MCPTransientError,
 )
 from app.core.logging import kv
 from app.governance.agt import get_guard
+from app.tools.oauth import DelegatedMCPTokenProvider
 
 logger = logging.getLogger(__name__)
 
 ADVERTISER_ARG = "advertiser_id"
+ResultT = TypeVar("ResultT")
 
 
 def _size_of(result) -> int | None:
@@ -62,10 +72,6 @@ class MCPClient(ABC):
     ):
         self.advertiser_id = advertiser_id
         self.settings = settings or get_settings()
-        # Auth seam (PLT-05, open question A1). Authenticating to an MCP server
-        # is transport-level - a token on the connection, not a header per call -
-        # so it is held here and used by whichever transport needs it. Empty
-        # until the client confirms the method.
         self.auth_token = auth_token or self.settings.mcp_auth_token
 
     # --- what transports implement ---
@@ -118,7 +124,11 @@ class MCPClient(ABC):
 
     # --- shared retry / timing / logging ---
 
-    async def _retrying(self, label: str, operation):
+    async def _retrying(
+        self,
+        label: str,
+        operation: Callable[[], Awaitable[ResultT]],
+    ) -> ResultT:
         attempts = max(1, self.settings.mcp_max_retries)
         last: Exception | None = None
 
@@ -171,12 +181,136 @@ class MCPClient(ABC):
         raise last or MCPError("failed after retries", tool=label)
 
 
-def create_mcp_client(advertiser_id: str) -> MCPClient:
-    """Return the configured client for this advertiser.
+class StreamableHTTPMCPClient(MCPClient):
+    """Stateless Streamable HTTP MCP transport with per-call delegated auth."""
 
-    Mock until the client ships the real server; then implement a transport
-    over the `mcp` SDK and switch on USE_MOCK_MCP.
-    """
+    def __init__(
+        self,
+        advertiser_id: str,
+        *,
+        auth_token: str | None = None,
+        settings: Settings | None = None,
+        token_provider: DelegatedMCPTokenProvider | None = None,
+        http_client: httpx.AsyncClient | None = None,
+    ) -> None:
+        super().__init__(advertiser_id=advertiser_id, auth_token=auth_token, settings=settings)
+        self._token_provider = token_provider or DelegatedMCPTokenProvider(self.settings)
+        self._http_client = http_client
+
+    async def _list_tools_raw(self) -> list[dict]:
+        result = await self._request("tools/list", {})
+        tools = result.get("tools")
+        if not isinstance(tools, list) or not all(isinstance(tool, dict) for tool in tools):
+            raise MCPError("MCP tools/list returned an invalid response")
+        return tools
+
+    async def _call_tool_raw(self, name: str, arguments: dict) -> dict:
+        external_arguments = dict(arguments)
+        external_arguments.pop(ADVERTISER_ARG, None)
+        result = await self._request(
+            "tools/call",
+            {"name": name, "arguments": external_arguments},
+            tool=name,
+        )
+        if result.get("isError") is True:
+            raise MCPError("The MCP tool rejected the request", tool=name)
+
+        structured = result.get("structuredContent")
+        if isinstance(structured, dict):
+            value = structured.get("result", structured)
+            if isinstance(value, dict):
+                return value
+
+        content = result.get("content")
+        if isinstance(content, list):
+            for item in content:
+                if isinstance(item, dict) and isinstance(item.get("text"), str):
+                    try:
+                        value = json.loads(item["text"])
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(value, dict):
+                        return value
+        raise MCPError("The MCP tool returned an invalid response", tool=name)
+
+    async def _request(
+        self,
+        method: str,
+        params: dict,
+        *,
+        tool: str | None = None,
+    ) -> dict:
+        token = await self._token_provider.get_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Vowmade-Advertiser-Id": self.advertiser_id,
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+            "MCP-Protocol-Version": self.settings.mcp_protocol_version,
+        }
+        payload = {
+            "jsonrpc": "2.0",
+            "id": str(uuid.uuid4()),
+            "method": method,
+            "params": params,
+        }
+        try:
+            if self._http_client is not None:
+                response = await self._http_client.post(
+                    self.settings.mcp_server_url,
+                    headers=headers,
+                    json=payload,
+                )
+            else:
+                async with httpx.AsyncClient(timeout=self.settings.mcp_timeout_seconds) as client:
+                    response = await client.post(
+                        self.settings.mcp_server_url,
+                        headers=headers,
+                        json=payload,
+                    )
+        except httpx.HTTPError as error:
+            raise MCPTransientError("The MCP server is unavailable", tool=tool) from error
+
+        if response.status_code in {408, 429} or response.status_code >= 500:
+            raise MCPTransientError("The MCP server is temporarily unavailable", tool=tool)
+        if response.status_code in {401, 403}:
+            raise MCPError("MCP authentication or advertiser access was denied", tool=tool)
+        if response.status_code >= 400:
+            raise MCPError(f"MCP request failed with HTTP {response.status_code}", tool=tool)
+
+        message = _decode_mcp_response(response)
+        rpc_error = message.get("error")
+        if isinstance(rpc_error, dict):
+            if rpc_error.get("code") == -32601:
+                raise MCPToolNotFoundError("The MCP tool is not available", tool=tool)
+            raise MCPError("The MCP server rejected the request", tool=tool)
+        result = message.get("result")
+        if not isinstance(result, dict):
+            raise MCPError("The MCP server returned an invalid response", tool=tool)
+        return result
+
+
+def _decode_mcp_response(response: httpx.Response) -> dict:
+    content_type = response.headers.get("content-type", "").lower()
+    try:
+        if "application/json" in content_type:
+            message = response.json()
+        else:
+            data_lines = [
+                line.removeprefix("data:").strip()
+                for line in response.text.splitlines()
+                if line.startswith("data:")
+            ]
+            message = json.loads("\n".join(data_lines))
+    except (json.JSONDecodeError, ValueError) as error:
+        raise MCPError("The MCP server returned malformed JSON-RPC") from error
+    if not isinstance(message, dict):
+        raise MCPError("The MCP server returned malformed JSON-RPC")
+    return message
+
+
+def create_mcp_client(advertiser_id: str) -> MCPClient:
+    """Return the configured advertiser-scoped client."""
     settings = get_settings()
 
     if settings.use_mock_mcp:
@@ -185,7 +319,9 @@ def create_mcp_client(advertiser_id: str) -> MCPClient:
         logger.info("Using MockMCPClient - canned VOW responses, no server contacted.")
         return MockMCPClient(advertiser_id=advertiser_id)
 
-    raise NotImplementedError(
-        "No real MCP transport yet. Implement MCPClient over the `mcp` SDK "
-        "(add it to requirements.txt) and wire it here, or set USE_MOCK_MCP=true."
+    return StreamableHTTPMCPClient(
+        advertiser_id=advertiser_id,
+        settings=settings,
+        token_provider=DelegatedMCPTokenProvider(settings),
     )
+
