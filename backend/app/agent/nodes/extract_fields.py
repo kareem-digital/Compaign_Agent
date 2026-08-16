@@ -53,6 +53,7 @@ _CURRENCY_BY_MARKET = {"GB": "GBP", "US": "USD", "FR": "EUR", "DE": "EUR"}
 _SYMBOL_CURRENCY = {"£": "GBP", "$": "USD", "€": "EUR"}
 
 _MONTHS = {m.lower(): i for i, m in enumerate(calendar.month_name) if m}
+_MONTHS.update({m.lower(): i for i, m in enumerate(calendar.month_abbr) if m})
 
 # Ordered by how strongly each signals "this number is money". Every pattern
 # captures (symbol, number, magnitude_suffix) so the caller reads them alike.
@@ -83,6 +84,10 @@ class BriefFields(BaseModel):
         default_factory=list,
         description="CTV providers named, exactly as: Prime Video, Netflix, Disney+, Hulu",
     )
+    product_context: str | None = Field(
+        None,
+        description="Brand, product or campaign description the trader mentions, e.g. 'running shoes', 'coffee brand launch', 'Nike Air Max'. Leave null if not stated.",
+    )
 
 
 # --- reading the conversation ------------------------------------------------
@@ -90,14 +95,21 @@ class BriefFields(BaseModel):
 
 def _latest_human_text(state: PlanningAgentState) -> str:
     """The most recent user message, however LangGraph happens to store it."""
-    for message in reversed(state.get("messages") or []):
+    messages = state.get("messages") or []
+    for message in reversed(messages):
         role = getattr(message, "type", None) or (
             message.get("role") if isinstance(message, dict) else None
         )
         if role in ("human", "user"):
-            content = getattr(message, "content", None)
-            if content is None and isinstance(message, dict):
-                content = message.get("content")
+            if isinstance(message, dict):
+                content = message.get("content", "")
+            else:
+                content = getattr(message, "content", "")
+
+            if isinstance(content, list):
+                content = " ".join(
+                    item.get("text", "") for item in content if isinstance(item, dict)
+                )
             return str(content or "")
     return ""
 
@@ -139,15 +151,36 @@ def _durations(text: str) -> list[str]:
 
     # "15 and 30 second creatives" carries the unit only on the last number, so
     # once a unit word appears anywhere, bare durations in the same message
-    # count too. Word boundaries keep budgets and years out: neither "50,000"
-    # nor "2026" yields a bare match.
-    if re.search(r"\b(?:secs?|seconds?)\b|\d\s*s\b", text, re.I):
+    # count too. Also support bare selected values like "15", "30".
+    if re.search(r"\b(?:secs?|seconds?)\b|\d\s*s\b", text, re.I) or re.match(r"^\s*(10|15|20|30)\s*$", text.strip()):
         found.update(re.findall(r"\b(10|15|20|30)\b", text))
 
     return sorted(found, key=int)
 
 
 def _flight_dates(text: str) -> tuple[str | None, str | None]:
+    # Match ISO date range: e.g. '2026-10-01 to 2026-10-31' or '2026-10-01 - 2026-10-31'
+    m_iso = re.search(r"\b(\d{4}-\d{2}-\d{2})\s*(?:to|-)\s*(\d{4}-\d{2}-\d{2})\b", text)
+    if m_iso:
+        return m_iso.group(1), m_iso.group(2)
+
+    # Match explicit day range: e.g. '1 Oct to 31 Oct 2026' or '1 October to 31 October 2026'
+    m_range = re.search(
+        rf"\b([1-9]|[12]\d|3[01])\s+({'|'.join(_MONTHS)})\b(?:\s+(?:to|-|until|through)\s+)?\b([1-9]|[12]\d|3[01])?\s*({'|'.join(_MONTHS)})\b(?:\s+(\d{{4}}))?",
+        text,
+        re.I,
+    )
+    if m_range:
+        d1, m1_str, d2, m2_str, y_str = m_range.groups()
+        m1 = _MONTHS[m1_str.lower()]
+        m2 = _MONTHS[m2_str.lower()]
+        if y_str:
+            year = int(y_str)
+        else:
+            today = date.today()
+            year = today.year if m1 >= today.month else today.year + 1
+        return f"{year:04d}-{m1:02d}-{int(d1):02d}", f"{year:04d}-{m2:02d}-{int(d2 or d1):02d}"
+
     match = re.search(rf"\b({'|'.join(_MONTHS)})\b(?:\s+(\d{{4}}))?", text, re.I)
     if not match:
         return None, None
@@ -166,6 +199,50 @@ def _flight_dates(text: str) -> tuple[str | None, str | None]:
     return f"{year:04d}-{month:02d}-01", f"{year:04d}-{month:02d}-{last:02d}"
 
 
+_NON_PROVIDER_WORDS = {
+    "uk", "gb", "us", "usa", "france", "germany", "china", "india", "japan", "spain",
+    "italy", "australia", "canada", "brazil", "mexico", "awareness", "consideration",
+    "campaign", "budget", "october", "september", "august", "january", "february",
+    "march", "april", "may", "june", "july", "november", "december", "dollars",
+    "pounds", "gbp", "usd", "eur", "running", "shoes", "shoe", "coffee", "brand",
+    "line", "launch", "product", "details", "plan", "option", "options", "ads",
+    "creative", "durations", "length", "lengths", "days", "dates", "flight",
+    "target", "reach", "audience", "location", "postcode", "radius", "city",
+    "show_alternatives", "keep_requested", "alternatives", "available",
+    "keep", "no", "yes", "instead", "don't", "stop", "please", "thanks", "thank",
+}
+
+
+def _providers(text: str) -> list[str]:
+    found_known = reference.provider_from_text(text)
+    if found_known:
+        return found_known
+
+    # Catch channel/inventory requests such as "on Zee TV", "on the Zee TV", "using Peacock", "via Hotstar"
+    matches = re.findall(
+        r"\b(?:on|via|using)\s+(?:the\s+)?([a-z0-9\+\s]{2,25}?)(?:\s+(?:in|for|with|from|to|at|and|or|\d|\$|£|€)|$|\.|\?)",
+        text,
+        re.I,
+    )
+    unrecognized = []
+    for match in matches:
+        cand = match.strip()
+        cand_lower = cand.lower()
+        if (
+            cand_lower
+            and cand_lower not in _NON_PROVIDER_WORDS
+            and len(cand_lower) >= 2
+            and not re.match(r"^\d+$", cand_lower)
+        ):
+            title_cand = " ".join(
+                w.upper() if w.lower() in ("tv", "dsp", "ott", "ctv") else w.capitalize()
+                for w in cand.split()
+            )
+            unrecognized.append(title_cand)
+
+    return unrecognized
+
+
 def _extract_with_patterns(text: str) -> BriefFields:
     amount, symbol_currency = _budget(text)
     markets = _markets(text)
@@ -178,7 +255,7 @@ def _extract_with_patterns(text: str) -> BriefFields:
         durations=_durations(text),
         budget_amount=amount,
         currency=symbol_currency or (_CURRENCY_BY_MARKET.get(markets[0]) if markets else None),
-        providers=reference.provider_from_text(text),
+        providers=_providers(text),
     )
 
 
@@ -197,6 +274,8 @@ def _known_summary(state: PlanningAgentState) -> str:
             f"budget_amount: {budgets[0]['budget'] if budgets else 'unknown'}",
             f"currency: {state.get('primary_currency') or 'unknown'}",
             f"providers: {state.get('preferred_providers') or 'unknown'}",
+            f"brand: {state.get('brand') or 'unknown'}",
+            f"product_context: {state.get('product_context') or 'unknown'}",
         ]
     )
 
@@ -239,9 +318,23 @@ def _system_prompt() -> str:
         "WHEN THE TRADER STATES A YEAR, RETURN IT EXACTLY AS GIVEN - including a past "
         "one. Do not correct it and do not keep the previous value instead. Reporting "
         "what they said is your job; deciding whether it can be used is not.\n"
+        "PROVIDERS: extract any channel, network, or inventory provider names the trader "
+        "mentions (e.g. 'Prime Video', 'Netflix', 'Zee TV', 'Peacock'). Return the exact "
+        "names they asked for — deciding whether the platform carries them is not your job.\n"
+        "BRAND: extract the advertiser brand name if mentioned "
+        "(e.g. 'Nike', 'Mega Toothpaste', 'Adidas'). Carry forward the "
+        "existing value if not changed. Leave null if genuinely not mentioned.\n"
+        "PRODUCT_CONTEXT: extract any further context about the product launch or "
+        "campaign description if mentioned (e.g. 'running shoes', 'launch', "
+        "'new seasonal campaign'). Carry forward the existing value if not changed.\n"
         "Budget is a decimal string with no symbol. Leave a field empty if it is "
         "genuinely unknown - never guess a value the trader did not give."
     )
+
+
+# The validator names a field as the schema does; `PlanningAgentState` sometimes names it
+# differently. One mapping, in the one place the two vocabularies meet.
+_PLAN_FIELD = {"target_markets": "markets"}
 
 
 async def _grounding(registry, fields: dict) -> tuple[list[str], list[str], list[str]]:
@@ -349,12 +442,16 @@ async def _extract_with_llm(llm, text: str, state: PlanningAgentState) -> BriefF
 # --- merging -----------------------------------------------------------------
 
 
-def _merge(state: PlanningAgentState, found: BriefFields) -> dict:
+def _merge(state: PlanningAgentState, found: BriefFields) -> tuple[dict, list[str]]:
     """Overlay what was found onto what was known, keeping non-empty values.
 
     Empty means "not mentioned this turn", never "cleared". Clearing a field
     needs an explicit correction, which the LLM path handles by returning the
     corrected value rather than a blank.
+
+    Returns (fields_dict, unavailable_providers) — the second element being any
+    provider names the trader gave that the platform does not carry. Callers
+    must surface these before asking for missing basics (TC-014).
     """
     known_dates = state.get("flight_dates") or {}
     known_budgets = state.get("market_budgets") or []
@@ -365,9 +462,15 @@ def _merge(state: PlanningAgentState, found: BriefFields) -> dict:
     # Only providers VOW actually carries. A model naming "Peacock" should not
     # put an unrecognised provider into the plan.
     known = {p["value"] for p in reference.providers()}
-    providers = [
-        p for p in (found.providers or state.get("preferred_providers") or []) if p in known
-    ]
+    newly_requested_providers = found.providers or []
+    effective_providers = found.providers or state.get("preferred_providers") or []
+    providers = [p for p in effective_providers if p in known]
+    # Track what was dropped so the node can surface it (TC-014).
+    unavailable_providers = [p for p in newly_requested_providers if p not in known]
+    # Also carry forward any previously unavailable ones that are still unresolved.
+    prev_unavailable = state.get("unavailable_requested_channels") or []
+    unavailable_providers = unavailable_providers or prev_unavailable
+
     start = found.flight_start or known_dates.get("lower")
     end = found.flight_end or known_dates.get("upper")
     amount = found.budget_amount or known_amount
@@ -383,7 +486,7 @@ def _merge(state: PlanningAgentState, found: BriefFields) -> dict:
     # a word and went on believing it was in the plan. `_grounding` now checks them against the
     # snapshot's own `valid_durations` and says which one cannot be sold - and the list comes
     # from the platform rather than from a constant in this file.
-    return {
+    fields = {
         "markets": markets,
         "durations": durations,
         "preferred_providers": providers,
@@ -395,6 +498,7 @@ def _merge(state: PlanningAgentState, found: BriefFields) -> dict:
             else []
         ),
     }
+    return fields, unavailable_providers
 
 
 def _joined(*parts: str) -> str:
@@ -404,6 +508,17 @@ def _joined(*parts: str) -> str:
     string in it leaves a double gap that reads as a missing paragraph.
     """
     return "\n\n".join(part for part in parts if part and part.strip())
+
+
+def providers_resolved(state: PlanningAgentState, unavailable: list[str]) -> bool:
+    """True when the trader has already been told about these unavailable providers.
+
+    Once the channel-conflict message has been shown (awaiting_choice is set),
+    we don't re-block on it every turn — the user's next reply is their answer.
+    """
+    # If awaiting_choice is set, the user was already shown the conflict and
+    # their next message is a response to it.
+    return bool(state.get("awaiting_choice"))
 
 
 def _confirmation(fields: dict) -> str:
@@ -459,11 +574,62 @@ def make_extract_fields(registry):
             found = _extract_with_patterns(text)
             method = "patterns"
 
-        fields = _merge(state, found)
+        # Safety net: if pattern matching found providers that LLM omitted, merge them
+        pattern_provs = _providers(text)
+        if pattern_provs and not found.providers:
+            found.providers = pattern_provs
+
+        fields, unavailable_providers = _merge(state, found)
 
         # **Is what the trader said something VOW sells?** See `_grounding`. Run before the
         # confirmation is built, so a note can ride along with it.
         blocking, notes, rejected = await _grounding(registry, fields)
+
+        force_show_inventory = False
+        awaiting_choice = state.get("awaiting_choice")
+        # Handle user answer to previous channel conflict prompt (TC-015 / TC-016)
+        if awaiting_choice == "unavailable_channel":
+            if re.search(r"\b(yes|show|alternatives|available|options|show_alternatives|inventory|show available inventory)\b", text, re.I):
+                # User wants to see available inventory. Clear the conflict state and
+                # route directly to select_inventory to display the real deals!
+                unavailable_providers = []
+                awaiting_choice = None
+                state["unavailable_requested_channels"] = []
+                found.providers = []
+                fields["preferred_providers"] = []
+                blocking = []
+                force_show_inventory = True
+            elif re.search(r"\b(no|keep|don't|stop|later|plan later|keep_requested)\b", text, re.I):
+                chan_name = ", ".join(state.get("unavailable_requested_channels") or ["that channel"])
+                return {
+                    "messages": [{
+                        "role": "assistant",
+                        "content": f"No problem. We hope to support {chan_name} in the future. You can come back anytime when you're ready to continue with a different inventory."
+                    }],
+                    "current_stage": "concluded",
+                    "stage_cursor": "concluded",
+                    "plan_approved": False,
+                    "awaiting": [],
+                    "awaiting_choice": None,
+                    "unavailable_requested_channels": [],
+                }
+        elif awaiting_choice == "select_alternative_provider":
+            # Legacy state: if the user somehow arrives here, treat it as cleared.
+            awaiting_choice = None
+        elif re.search(r"\b(show available inventory|show inventory|what inventory)\b", text, re.I):
+            force_show_inventory = True
+
+        # TC-014: If the trader named a provider the platform doesn't carry, surface it
+        # IMMEDIATELY — before asking for missing basics (Rule C).
+        if unavailable_providers and not providers_resolved(state, unavailable_providers):
+            channel_names = ", ".join(unavailable_providers)
+            channel_msg = (
+                f"{channel_names} isn't currently available as inventory on this platform, "
+                f"so I can't plan the campaign on it. We hope to support it in the future. "
+                f"Would you like to use an available inventory instead?"
+            )
+            blocking = [channel_msg]
+            awaiting_choice = "unavailable_channel"
 
         # Check for approval intent when the plan is ready
         is_approval = bool(
@@ -489,46 +655,37 @@ def make_extract_fields(registry):
         market_label = fields["markets"][0] if fields.get("markets") else "TBC"
         month_label = fields["flight_dates"]["lower"][:7] if fields.get("flight_dates") else "TBC"
 
+        # brand: use the LLM-extracted value from BriefFields if it arrived,
+        # falling back to whatever is already in state. Accumulates correctly across turns.
+        # Distinct from strategy_name (system-generated) and product_context (backward compat).
+        brand = found.product_context or state.get("brand")
+        # product_context kept for plan_ready.py backward compat — mirrors brand.
+        product_context = brand or state.get("product_context")
+
         result = {
             **fields,
             "current_stage": STAGE,
             "strategy_name": f"CTV {market_label} {month_label}",
-            "product_context": state.get("product_context") or (
-                "New running shoe line" if re.search(r"\brunning shoe", text, re.I) else None
-            ),
+            "brand": brand,
+            "product_context": product_context,
             "audience_refinement": audience_refinement,
             "locations": locations,
             "plan_approved": plan_approved,
             "goal": "AWARENESS",
             "kpi": "reach",
             "rejected_fields": rejected,
+            # Persist unavailable channels so they survive across turns (TC-014)
+            "unavailable_requested_channels": [] if awaiting_choice is None and not unavailable_providers else (unavailable_providers or state.get("unavailable_requested_channels") or []),
+            "awaiting_choice": awaiting_choice,
         }
 
-
         # The gate: whatever is still missing stops the graph here and gets asked for.
-        result["awaiting"] = blocking or missing_basics(result)
-
-        # Only emit a message from extract_fields if the basics were completed in full this turn.
-        # Otherwise, ask_for_missing will speak for the turn so we don't output double messages.
-        if not result["awaiting"] and not state.get("markets"):
-            # TC-005 complete brief in one message
-            result["messages"] = [
-                {
-                    "role": "assistant",
-                    "content": (
-                        f"Perfect. I have the core campaign brief:\n"
-                        f"- Market: {market_label}\n"
-                        f"- Inventory: {', '.join(fields['preferred_providers']) or 'Prime Video'}\n"
-                        f"- Budget: {fields['market_budgets'][0]['budget']} {fields['primary_currency']}\n"
-                        f"- Flight: {fields['flight_dates']['lower']} to {fields['flight_dates']['upper']}\n"
-                        f"- Duration: {', '.join(fields['durations'])}s\n"
-                        f"- Goal: Awareness\n\n"
-                        f"I'll use the default {market_label}-wide targeting unless you'd like to refine the audience or location."
-                    ),
-                }
-            ]
+        if force_show_inventory:
+            result["awaiting"] = []
+            result["stage_cursor"] = None
         else:
-            result["messages"] = []
+            result["awaiting"] = blocking or missing_basics(result)
+        result["messages"] = []
 
         # A change to any of these invalidates work already done
         invalidating = ("markets", "durations", "preferred_providers", "market_budgets")

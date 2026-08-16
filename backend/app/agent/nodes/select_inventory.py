@@ -85,39 +85,8 @@ def _summary(
         return f"I could not find CTV inventory for {market}. Shall I widen the market or the durations?"
 
     if preferred:
-        lines = [
-            f"You've chosen {', '.join(preferred)}. Here are the deals available "
-            f"in {market} - say if you'd like to change that.",
-            "",
-        ]
-    else:
-        lines = [f"CTV inventory available in {market}:", ""]
-    for deal in deals:
-        genre = f" | {deal['genre']}" if deal.get("genre") else ""
-        lines.append(
-            f"- {deal['provider']}{genre} - {deal['cpm']} CPM"
-            f" ({', '.join(deal['ad_lengths'])}s) - {_TIER_LABEL[deal['inventory_tier']]}"
-        )
-
-    # Genre upsell: the client asked for this explicitly. Only meaningful within
-    # one provider, where the CPM difference buys a better contextual match.
-    by_provider: dict[str, list[dict]] = {}
-    for deal in deals:
-        by_provider.setdefault(deal["provider"], []).append(deal)
-    for provider, group in by_provider.items():
-        base = next((d for d in group if not d.get("genre")), None)
-        genred = [d for d in group if d.get("genre")]
-        if base and genred:
-            option = genred[0]
-            lines += [
-                "",
-                f"{provider} run-of-service is {base['cpm']}; {option['genre']} is "
-                f"{option['cpm']}. If the brief implies {option['genre']}, the higher "
-                f"CPM usually buys a better match.",
-            ]
-            break
-
-    return "\n".join(lines)
+        return f"You've chosen {', '.join(preferred)}. Here are the deals available in {market} — say if you'd like to change that."
+    return f"Here is the available CTV inventory in {market}. Which inventory would you like to select for your campaign?"
 
 
 def make_select_inventory(mcp: MCPClient):

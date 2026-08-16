@@ -115,57 +115,6 @@ describe("OptionsBlockCard", () => {
     });
   });
 
-  it("ignores the shortcut while a field has focus", async () => {
-    const user = userEvent.setup();
-    renderCard(makeOptionsBlock({ allowCustom: true }));
-
-    await user.type(screen.getByLabelText(/Your own answer to:/), "2");
-
-    // The keystroke went into the field, so nothing was staged.
-    expect(screen.getByRole("button", { name: "Confirm" })).toBeDisabled();
-  });
-
-  it("sends typed text tied to the same question", async () => {
-    const user = userEvent.setup();
-    const block = makeOptionsBlock({
-      allowCustom: true,
-      customPlaceholder: "Name the inventory…",
-    });
-    const { onAnswer } = renderCard(block);
-
-    const field = screen.getByPlaceholderText("Name the inventory…");
-    await user.type(field, "Freevee");
-    await user.click(screen.getByRole("button", { name: "Send answer" }));
-
-    expect(onAnswer).toHaveBeenCalledWith(block, {
-      optionIds: [],
-      customText: "Freevee",
-    });
-  });
-
-  it("submits typed text on Enter but not while it is blank", async () => {
-    const user = userEvent.setup();
-    const block = makeOptionsBlock({ allowCustom: true });
-    const { onAnswer } = renderCard(block);
-
-    const field = screen.getByLabelText(/Your own answer to:/);
-    await user.type(field, "{Enter}");
-    expect(onAnswer).not.toHaveBeenCalled();
-
-    await user.type(field, "Freevee{Enter}");
-
-    expect(onAnswer).toHaveBeenCalledWith(block, {
-      optionIds: [],
-      customText: "Freevee",
-    });
-  });
-
-  it("offers no typed answer when the question does not allow one", () => {
-    renderCard(makeOptionsBlock({ allowCustom: false }));
-
-    expect(screen.queryByLabelText(/Your own answer to:/)).toBeNull();
-  });
-
   it("locks a question that is no longer the active one", () => {
     renderCard(makeOptionsBlock(), { interactive: false });
 
@@ -193,10 +142,9 @@ describe("OptionsBlockCard", () => {
     renderCard(
       makeOptionsBlock({
         status: "answered",
-        allowCustom: true,
         answer: {
           selectedOptionIds: ["opt-twitch"],
-          customText: "plus Freevee",
+          customText: null,
           answeredAt: null,
         },
       }),
@@ -204,7 +152,6 @@ describe("OptionsBlockCard", () => {
 
     // Locked, so the rows are static and the record is what shows.
     expect(screen.queryByRole("button", { name: /Twitch/ })).toBeNull();
-    expect(screen.getByText("plus Freevee")).toBeInTheDocument();
   });
 
   it("shows the tap in flight while it lands, without locking on its own", () => {

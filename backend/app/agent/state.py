@@ -33,6 +33,7 @@ class PlanningAgentState(TypedDict, total=False):
 
     # --- Basics (step 1) ---
     strategy_name: str | None
+    brand: str | None           # user-stated brand/advertiser name, e.g. "Mega Toothpaste"
     flight_dates: dict | None  # {"lower": "YYYY-MM-DD", "upper": "YYYY-MM-DD"}
     markets: list[str]  # ISO country codes
     durations: list[str]  # creative durations in seconds, as strings
@@ -82,7 +83,11 @@ class PlanningAgentState(TypedDict, total=False):
     stage_cursor: str
     rejected_fields: list[str]
     awaiting: list[str]
+    awaiting_choice: str | None       # blocks re-triggering TC-014 after shown once
     validation_errors: list[str]
+    # Provider names the trader requested that the platform doesn't carry (TC-014)
+    unavailable_requested_channels: list[str]
+
 
 
 # Kept so nothing that imported the old name breaks mid-refactor.

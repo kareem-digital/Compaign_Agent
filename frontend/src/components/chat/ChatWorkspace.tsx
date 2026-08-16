@@ -47,6 +47,7 @@ export function ChatWorkspace({
   // it through `onAnswer` keeps the text tied to its elicitation on the wire
   // rather than arriving as an unrelated turn the server has to guess about.
   const answerable = activeElicitation?.allowCustom ? activeElicitation : null;
+  const isConcluded = plan.status === "concluded" || messages.some((m) => m.stage === "concluded");
   const submit = (value: string) =>
     answerable
       ? onAnswer(answerable, { optionIds: [], customText: value })
@@ -76,8 +77,14 @@ export function ChatWorkspace({
         )}
         <ChatInput
           onSend={submit}
-          disabled={isSending}
-          placeholder={answerable ? COPY.answerPlaceholder : undefined}
+          disabled={isSending || isConcluded}
+          placeholder={
+            isConcluded
+              ? "Conversation concluded. Start a new session to plan another campaign."
+              : answerable
+                ? COPY.answerPlaceholder
+                : undefined
+          }
         />
         <p className="text-center text-note text-base-content/50">
           {COPY.disclaimer}

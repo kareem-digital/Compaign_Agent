@@ -120,3 +120,47 @@ async def test_golden_case_c_unsupported_market_and_inventory(graph):
     assert res.get("rejected_fields") == ["markets"]
     assert "CN" in res.get("awaiting")[0]
     assert "does not sell" in res.get("awaiting")[0]
+
+
+@pytest.mark.asyncio
+async def test_tc014_unsupported_inventory_zee_tv(graph):
+    """TC-014: Unsupported inventory Zee TV in UK is politely explained with alternatives."""
+    session_id = "test-tc014"
+    config = {"configurable": {"thread_id": session_id}}
+
+    res1 = await graph.ainvoke(
+        {
+            "messages": [{"role": "user", "content": "I want to plan to run a compaign in the UK on the zee tv"}],
+            "advertiser_id": "adv-test",
+            "session_id": session_id,
+        },
+        config=config,
+    )
+    # Grounding detects Zee TV is not carried by VOW
+    assert "Zee TV" in res1.get("unavailable_requested_channels", []) or "Zee TV" in res1.get("awaiting", [])[0]
+    assert "isn't currently available" in res1["messages"][-1].content
+    # Does NOT ask for dates/budget before inventory is resolved (Rule C)
+    assert "start and end dates" not in res1["messages"][-1].content
+
+    # User chooses alternatives (TC-015): Agent shows available inventory
+    res2 = await graph.ainvoke(
+        {
+            "messages": [{"role": "user", "content": "Show available alternatives"}],
+            "advertiser_id": "adv-test",
+            "session_id": session_id,
+        },
+        config=config,
+    )
+    assert res2.get("current_stage") == "inventory"
+    assert len(res2.get("selected_deals", [])) > 0, "Agent should return available inventory deals"
+
+    # User selects an inventory deal (TC-012 in M1_planning): Agent saves it and asks for remaining missing details
+    res3 = await graph.ainvoke(
+        {
+            "messages": [{"role": "user", "content": "Prime Video"}],
+            "advertiser_id": "adv-test",
+            "session_id": session_id,
+        },
+        config=config,
+    )
+    assert res3.get("awaiting"), "Agent should proceed to ask for remaining missing campaign details"

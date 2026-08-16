@@ -146,12 +146,12 @@ class Settings(BaseSettings):
     dev_advertiser_id: str = "dev-advertiser-0001"
 
     # --- LLM ---
-    # Used to understand briefs and to phrase follow-up questions. VOW already
-    # uses OpenAI for audience intelligence, so this keeps one provider.
-    # Leave the key empty and the agent falls back to pattern matching - less
-    # capable, but it means tests and CI never need a secret.
+    # Supports OpenAI and Anthropic (Claude). Set LLM_PROVIDER to switch.
+    # Leave keys empty and the agent falls back to pattern matching.
+    llm_provider: str = "anthropic"   # "openai" or "anthropic"
     openai_api_key: str = ""
-    llm_model: str = "gpt-4o-mini"
+    anthropic_api_key: str = ""
+    llm_model: str = "claude-sonnet-4-5"   # overridden per provider if blank
     llm_temperature: float = 0.0
 
     @property

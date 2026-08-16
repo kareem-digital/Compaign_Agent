@@ -53,6 +53,11 @@ def _fields(**extra) -> dict:
     }
 
 
+@pytest.fixture(autouse=True)
+def _no_llm_in_unit_tests(monkeypatch):
+    monkeypatch.setattr("app.agent.nodes.extract_fields.get_llm", lambda: None)
+
+
 def _turn(text: str, **state) -> dict:
     return {"messages": [{"role": "user", "content": text}], **state}
 

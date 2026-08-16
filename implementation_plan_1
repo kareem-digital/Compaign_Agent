@@ -1,0 +1,124 @@
+# M1 Audit Report — Against M1_planning.txt
+
+> Audit date: 2026-08-15 · Live screenshot captured and verified
+
+---
+
+## Current M1 Status
+
+| Area | Status | Working | Missing |
+|---|---|---|---|
+| Basic Details (brand, market, dates, duration, budget) | ✅ | LLM extraction, grounding, state persistence, panel sync | Brand extraction sometimes returns campaign description not brand name |
+| Goal/KPI | ✅ | Auto-confirmed as Awareness/Reach, shown in panel as "fixed for CTV" | — |
+| Budget/Bid | ✅ | Collected, validated, currency-aware | Bid not collected (no deal bid config yet) |
+| CTV Inventory | ⚠️ | Real MCP data, real CPMs shown in chat as **plain text** | No interactive table/chip selection UI in chat; user must type inventory name |
+| Unavailable inventory (Zee TV flow) | ✅ | Correct conflict detection, "Show available inventory" / "No, I'll plan this later" chips | — |
+| Targeting gate | ❌ | — | "Default UK targeting / Refine targeting?" prompt never shown |
+| Audiences | ❌ | — | `suggest_audiences` node never reached in normal flow |
+| Strategy Panel | ✅ | Live sync: brand, markets, flight, durations, budget, goal, kpi | CTV inventory section not updated after selection |
+| Plan completion / Review | ❌ | — | No final summary table, no "Review Strategy Plan" / Approve step |
+| Agent reasoning (NLU) | ✅ | LLM extracts all fields from 1-message briefs and incremental turns | — |
+| Corrections / change of mind | ✅ | LLM carry-forward + override works | — |
+| Out-of-order info | ✅ | State accumulates across turns | — |
+| Registry integration | ✅ | Markets, durations, currency validated against registry | — |
+| MCP integration | ✅ | `LIST_DEALS` returns real CPMs (18.22, 22.07, 31.50, 34.00) | — |
+| Validation | ✅ | Dates, durations, market, currency all validated | Bid type not validated |
+| Tests | ✅ | 144 passing | Test cases 11–20 from STEP 22 not formally covered |
+| Response format (STEP 15) | ❌ | Chips work for unavailable-inventory prompt | **Inventory table/chips, targeting chips, plan approval button all missing from chat** |
+
+---
+
+## Already Implemented ✅
+
+- **Steps 4, 5, 6, 8, 12, 17, 18, 19** — Anti-hallucination rules, NLU, inventory validation, budget collection, corrections, out-of-order, one-message brief
+- **Step 7 (partial)** — "Show available inventory" routes to real MCP; data returned correctly  
+- **Step 9** — Goal/KPI/Budget treated as separate fields
+- **Step 10, 11** — Goal=AWARENESS auto-confirmed, KPI=Reach auto-confirmed (CTV-fixed)
+- **Step 20** — Strategy Panel synced live from `plan_state` API field
+- **Step 23** — Backend tests (144), TypeScript 0 errors, test-after-implement discipline
+
+---
+
+## Partially Implemented ⚠️
+
+- **Step 7** — Available inventory IS retrieved from MCP but shown as **plain text bullet list**, not a selectable table/chips with a confirm button
+- **Step 8** — Summary of understood fields shown in chat text, but no interactive "confirm understanding" block with an Edit button
+- **Step 13** — Targeting node exists in graph (`suggest_audiences`) but the **gate prompt** ("Keep default / Refine targeting?") is never shown
+
+---
+
+## Missing ❌
+
+### 1. Interactive inventory selection (Step 7, Step 15)
+The inventory table is shown as plain text. Per M1_planning.txt Step 7:
+> Use a selectable UI: radio buttons (single), checkboxes (multiple), table (compare)
+
+The user must currently **type** the inventory name. There are no clickable chips or a table with a "Select" button.
+
+### 2. Targeting gate (Step 13)
+After basics + inventory are confirmed, the agent should show:
+> "Targeting can use the default UK market baseline. Would you like to refine the audience or location?"
+> `[Keep default targeting]` `[Refine targeting]`
+
+This gate is absent. The agent currently shows "I'll use the default GB-wide targeting" as plain text only.
+
+### 3. Plan completion / M1 review (Step 21)
+After all M1 fields are collected and validated, the agent should show:
+- A formatted Strategy Plan summary table
+- A `[Review Strategy Plan]` / `[Accept Plan]` interactive button
+
+Currently the flow ends after inventory is listed. There is no explicit M1 completion step.
+
+### 4. CTV Inventory section in Strategy Panel (Step 20)
+The panel shows Brand/Markets/Flight/Budget/Goal/KPI correctly. But after the user selects an inventory, the "CTV inventory" section in the panel does not update with the selected deal.
+
+---
+
+## Key Screenshot Evidence
+
+The chat shows inventory as **plain text** bullet list — no interactive elements:
+```
+- Prime Video - 18.22 CPM (15, 30s) - Amazon-owned (reach forecast available)
+- Prime Video | Action - 22.07 CPM ...
+- Netflix - 31.50 CPM ...
+- Disney+ - 34.00 CPM ...
+```
+
+The panel shows all basics correctly:
+- Brand: running shoe line ✅
+- Markets: GB ✅  
+- Goal: Awareness (fixed for CTV) ✅
+- KPI: Unique reach (fixed for CTV) ✅
+
+---
+
+## Recommended Next Implementation Steps (Priority Order)
+
+> **Per M1_planning.txt workflow: STOP and ask before implementing.**
+
+### Priority A — Interactive inventory selection
+Convert the plain-text inventory listing into a **selectable table/chips** block in the chat. When user selects one, the agent confirms and advances.
+
+**What changes:** `select_inventory.py` → emit a `select_one` block with deal options; `presentation.py` → render as table/chips; frontend already supports `options` blocks.
+
+### Priority B — Targeting gate
+After inventory is confirmed, show:
+> "Would you like to refine audience/location, or use UK-wide default targeting?"  
+> `[Keep default]` `[Refine targeting]`
+
+**What changes:** `gates.py` + a new gate condition after inventory stage.
+
+### Priority C — M1 plan completion (Review/Accept)
+When all M1 fields are complete, emit a final strategy summary block with an `[Accept Plan]` button.
+
+**What changes:** `plan_ready.py` → add summary table block; frontend already has `Accept Plan` button in the panel (currently disabled).
+
+### Priority D — Inventory section in strategy panel
+After user selects inventory, update the "CTV inventory" stage card in the panel with the selected deal name and CPM.
+
+**What changes:** Add `selected_inventory` to `plan_state` in `sessions.py`; update `buildLivePlan()` in frontend.
+
+---
+
+> **Shall I proceed with Priority A (interactive inventory selection)?**
+> This is the most visible gap — the inventory is showing as plain text when it should be an interactive table with selectable options and a confirm button.

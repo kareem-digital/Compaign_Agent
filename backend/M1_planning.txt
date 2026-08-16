@@ -1,0 +1,1043 @@
+# M1 Strategy Plan Implementation — Interactive Development Plan
+
+Act as a Senior AI Engineer and take ownership of implementing M1 of the VOW Agent campaign-planning flow.
+
+## M1 Scope
+
+M1 covers the Strategy Plan up to:
+
+1. Basic Details
+2. Goals, KPI & Bid
+3. CTV Inventory
+4. Targeting
+
+The final output of M1 should be a validated Strategy Plan ready for the next stage.
+
+---
+
+# IMPORTANT: DO NOT START CODING IMMEDIATELY
+
+Before making any implementation changes, first understand what has already been implemented.
+
+I want you to work interactively and incrementally.
+
+Your workflow must always be:
+
+AUDIT → TEST → REPORT → ASK → IMPLEMENT → TEST → REPORT → ASK
+
+Do not assume that something is missing just because you cannot find it immediately.
+Do not rewrite working code unnecessarily.
+
+---
+
+# STEP 1 — FULL PROJECT AUDIT
+
+First inspect the entire existing project.
+
+Check:
+
+- Frontend
+- Backend
+- Agent/orchestration flow
+- Strategy planning logic
+- Schemas
+- Registry
+- MCP tools/servers
+- Tool calling logic
+- Validation logic
+- Conversation state/memory
+- API endpoints
+- Network/API responses
+- UI components
+- Existing tests
+- Logs
+- Environment/configuration
+- Existing prompts
+- Existing agent instructions
+- Existing database/data sources
+
+Also inspect the documentation available inside the `docs` folder.
+
+Important documents:
+
+- `docs/Strategy_Schema_v4.0_FINAL.pdf`
+- `docs/VOWAgent-CTV Journey Flowcharts-110826-080025.pdf`
+
+Also inspect any other relevant documents in the `docs` folder if they can help understand the intended Strategy Plan flow.
+
+Use the flowchart and schema as the source of truth for the intended M1 behaviour.
+
+---
+
+# STEP 2 — DO NOT IMPLEMENT YET
+
+After auditing the project, give me a concise implementation status report.
+
+Use this format:
+
+## Current M1 Status
+
+| Area | Status | What is already working | What is missing |
+|---|---|---|---|
+| Basic Details | ✅/⚠️/❌ | ... | ... |
+| Goals | ✅/⚠️/❌ | ... | ... |
+| KPI | ✅/⚠️/❌ | ... | ... |
+| Budget/Bid | ✅/⚠️/❌ | ... | ... |
+| CTV Inventory | ✅/⚠️/❌ | ... | ... |
+| Targeting | ✅/⚠️/❌ | ... | ... |
+| Agent reasoning | ✅/⚠️/❌ | ... | ... |
+| Registry integration | ✅/⚠️/❌ | ... | ... |
+| MCP integration | ✅/⚠️/❌ | ... | ... |
+| Frontend UI | ✅/⚠️/❌ | ... | ... |
+| Backend | ✅/⚠️/❌ | ... | ... |
+| Validation | ✅/⚠️/❌ | ... | ... |
+| Tests | ✅/⚠️/❌ | ... | ... |
+
+Then clearly explain:
+
+### Already implemented
+- ...
+
+### Partially implemented
+- ...
+
+### Missing
+- ...
+
+### Incorrect/current bugs
+- ...
+
+### Recommended next implementation step
+- ...
+
+DO NOT make code changes yet.
+
+After this report, STOP and ask me whether you should proceed.
+
+---
+
+# STEP 3 — TEST THE CURRENT IMPLEMENTATION
+
+Before implementing anything new, test the current system end-to-end.
+
+Test both:
+
+## Backend
+
+Check:
+
+- API requests
+- API responses
+- Agent state
+- Agent transitions
+- Tool calls
+- Registry lookups
+- MCP calls
+- Validation
+- Error handling
+- Missing-data handling
+- Conversation state
+- Strategy schema generation
+
+Inspect logs.
+
+Make sure there are no hidden failures.
+
+## Frontend
+
+Test:
+
+- Chat interaction
+- Strategy Plan panel
+- Progress indicator
+- Section updates
+- Selection controls
+- Confirmation controls
+- API/network requests
+- API/network responses
+- Loading states
+- Error states
+
+Use browser/network inspection where possible.
+
+Verify that the frontend is receiving the correct backend response.
+
+Do not assume that a UI appearing correct means the backend is correct.
+
+---
+
+# STEP 4 — AGENT MUST NEVER HALLUCINATE
+
+This is a critical requirement.
+
+The agent must NEVER invent campaign data.
+
+The agent must NEVER fabricate:
+
+- Inventory
+- Publishers
+- Channels
+- Platforms
+- CPM
+- Reach
+- Availability
+- Audience data
+- Locations
+- Deals
+- Dates
+- Creative durations
+- Budget recommendations
+- KPI values
+- Targeting options
+- Registry values
+- Tool results
+
+All factual campaign information must come from the actual available sources.
+
+Possible sources include:
+
+- Registry
+- MCP servers/tools
+- APIs
+- Database
+- Existing platform data
+- Validated user-provided information
+
+If information is not available, the agent must explicitly say that it is unavailable.
+
+Example:
+
+"Zee TV isn't currently available as inventory on this platform, so I can't include it in the plan. Would you like to see the available inventory instead?"
+
+Never invent a replacement inventory item.
+
+---
+
+# STEP 5 — DEEPLY ANALYZE EVERY USER PROMPT
+
+The agent must understand the user's natural-language campaign brief.
+
+The user may provide:
+
+### Very little information
+
+Example:
+
+"I want to run a campaign."
+
+The agent should identify that almost everything is missing and start collecting the required information.
+
+---
+
+### Some information
+
+Example:
+
+"I want to run a campaign in the UK."
+
+The agent should retain:
+
+- Market = UK
+
+Then identify what is still missing and ask only for the next important decision.
+
+Do NOT ask the user to repeat information already provided.
+
+---
+
+### Product + market
+
+Example:
+
+"We're launching a new running shoe line in the UK."
+
+The agent should retain:
+
+- Product/category = Running shoes
+- Market = UK
+
+Then continue with the next missing required information.
+
+---
+
+### Product + market + inventory
+
+Example:
+
+"We're launching a new running shoe line and want to run something on Prime Video in the UK."
+
+The agent should:
+
+1. Extract the information.
+2. Validate Prime Video against the actual inventory/registry.
+3. If available, retain it.
+4. Continue collecting missing campaign details.
+
+It should NOT immediately jump to audience targeting if critical campaign details such as dates, budget, creative duration, goal/KPI, etc. are still missing.
+
+---
+
+### Complete brief
+
+Example:
+
+"We're launching a new running shoe line in the UK. We have £15k from October 1 to 31 and want 30-second ads for awareness."
+
+The agent should extract:
+
+- Product = Running shoes
+- Market = UK
+- Budget = £15,000
+- Start date = October 1
+- End date = October 31
+- Creative duration = 30s
+- Goal = Awareness
+
+Then validate everything against the available platform data.
+
+Do not ask unnecessary questions for information already provided.
+
+Instead, summarize what was understood and ask only for the remaining required decisions.
+
+---
+
+# STEP 6 — INVENTORY VALIDATION
+
+Whenever the user mentions an inventory/publisher/platform/channel:
+
+1. Check the actual registry/platform data.
+2. Validate whether it exists.
+3. Validate whether it is available in the requested market.
+4. Validate whether it supports the required creative duration.
+5. Validate any other relevant campaign constraints.
+
+If available:
+
+Continue with that inventory.
+
+If unavailable:
+
+DO NOT provide it as a selectable option.
+
+Example:
+
+User:
+"We're launching a new running shoe line, want to run something on Zee TV in the UK."
+
+Agent:
+
+"Zee TV isn't currently available as inventory on this platform, so I can't include it in the campaign plan. We hope to support it in the future.
+
+Would you like to use an available inventory instead?"
+
+UI options:
+
+[Show available inventory]
+
+[No, I'll plan this later]
+
+Do NOT show:
+
+[Keep Zee TV]
+
+because Zee TV is unavailable and cannot actually be selected.
+
+---
+
+# STEP 7 — AVAILABLE INVENTORY
+
+If the user chooses:
+
+"Show available inventory"
+
+then retrieve the actual available inventory from the registry/tool.
+
+Do NOT hardcode a list.
+
+Only show inventory returned by the actual data source.
+
+Where appropriate, use a selectable UI such as:
+
+- Radio buttons when only ONE inventory can be selected.
+- Checkboxes when MULTIPLE inventory selections are allowed.
+- Table when the user needs to compare multiple inventory options.
+
+Example:
+
+"Here are the available UK inventory options:"
+
+| Inventory | Type | Indicative CPM | Availability |
+|---|---|---:|---|
+| Prime Video | Amazon-owned | £X | Available |
+| Netflix | Pre-curated | £X | Available |
+| ... | ... | ... | ... |
+
+Then:
+
+"Which inventory would you like to use?"
+
+Use a single-select control if the strategy requires one inventory.
+
+---
+
+# STEP 8 — COLLECT BASIC DETAILS INTELLIGENTLY
+
+The agent must dynamically determine what information is missing.
+
+Basic campaign details may include:
+
+- Brand
+- Product/category
+- Market
+- Inventory
+- Start date
+- End date
+- Creative duration
+- Budget
+
+Do not blindly ask all questions every time.
+
+If the user provides all of them, summarize and move forward.
+
+If only some are provided, preserve them and ask for only the missing information.
+
+Example:
+
+User:
+
+"I have £15k for a running shoe campaign in the UK from October 1 to 31."
+
+Agent should NOT ask:
+
+"What is your budget?"
+
+Instead:
+
+"Got it. I have:
+
+- Running shoes
+- UK
+- £15,000 budget
+- October 1–31
+
+I just need the creative duration to continue.
+
+Which duration would you like?"
+
+UI:
+
+○ 10s
+○ 15s
+○ 20s
+○ 30s
+
+---
+
+# STEP 9 — GOAL, KPI AND BUDGET/BID ARE DIFFERENT
+
+Do NOT treat Goal and KPI as the same field.
+
+Example:
+
+Goal:
+Awareness
+
+KPI:
+Unique Reach
+
+Budget:
+£15,000
+
+Bid:
+Should be collected or derived only according to the actual schema/business rules.
+
+Goal describes WHAT the campaign is trying to achieve.
+
+KPI describes HOW success will be measured.
+
+Budget describes HOW MUCH the user plans to spend.
+
+Bid describes the buying/bidding configuration.
+
+The agent must follow the schema and business rules rather than inventing values.
+
+---
+
+# STEP 10 — GOAL
+
+Use the actual schema/registry to determine available campaign goals.
+
+If the platform has a default goal such as Awareness, use it only according to the documented business rules.
+
+If the user explicitly provides a goal, preserve it.
+
+If the user wants to change the goal, provide the valid options from the actual source.
+
+Use a single-select/radio UI when only one goal can be selected.
+
+Example:
+
+"What's the main goal for this campaign?"
+
+○ Awareness
+○ Consideration
+○ Conversion
+
+Only show options that actually exist in the platform/schema.
+
+---
+
+# STEP 11 — KPI
+
+After Goal, determine the appropriate KPI based on the schema/business rules.
+
+Example:
+
+Goal:
+Awareness
+
+KPI:
+Unique Reach
+
+The agent should not randomly generate KPI options.
+
+Use the registry/schema/tool results.
+
+If multiple KPIs are valid:
+
+"How would you like to measure success?"
+
+○ Unique Reach
+○ Impressions
+○ ...
+
+If only one KPI is valid for the selected goal, automatically select it and explain briefly.
+
+---
+
+# STEP 12 — BUDGET / BID
+
+Collect budget when it is missing.
+
+If the user already gave a budget, retain it.
+
+Example:
+
+User:
+"I have £15k."
+
+Do not ask for budget again.
+
+If budget is missing:
+
+"What budget would you like to allocate to this campaign?"
+
+Allow natural-language input such as:
+
+- £15k
+- £15,000
+- 20k GBP
+- $20,000
+
+Normalize and validate the currency.
+
+For bid configuration, follow the actual Strategy Schema and available inventory/deal rules.
+
+Do not invent a bid.
+
+---
+
+# STEP 13 — TARGETING
+
+Targeting is optional according to the Strategy Plan.
+
+The agent should not force the user to define targeting if the documented flow allows default targeting.
+
+Use the platform's default baseline targeting when applicable.
+
+Example:
+
+If market = UK and no audience/geo refinement is provided:
+
+"Targeting can use the default UK market baseline. Would you like to refine the audience or location?"
+
+Options:
+
+[Keep default targeting]
+
+[Refine targeting]
+
+If the user wants refinement, then collect valid targeting information.
+
+Possible targeting dimensions should come only from the actual schema/registry/tools.
+
+---
+
+# STEP 14 — LOCATION
+
+Location must be handled intelligently.
+
+The user may provide:
+
+- Country
+- City
+- Region
+- Postcode
+- Multiple postcodes
+- Address
+- Radius around an address
+
+The agent must validate the location using the available location tools/data.
+
+Example:
+
+User:
+"Target London."
+
+Validate London.
+
+Example:
+
+User:
+"Target these postcodes: SW1A 1AA, W1A 0AX."
+
+Validate the postcodes and resolve them to platform location IDs if required.
+
+Example:
+
+User:
+"Target people within 10 miles of this address."
+
+Use the supported location/radius tool.
+
+Do not invent location IDs.
+
+---
+
+# STEP 15 — RESPONSE FORMAT MUST BE DYNAMIC
+
+The agent should decide how to present the response based on the type of decision.
+
+Use:
+
+### Plain text
+
+For:
+
+- Confirmation
+- Explanation
+- Missing information
+- Error
+- Short conversational response
+
+### Radio buttons / single select
+
+When exactly ONE option must be selected.
+
+Examples:
+
+- Goal
+- KPI
+- Inventory when only one inventory is allowed
+- Creative duration
+
+### Checkboxes / multi-select
+
+When multiple selections are allowed.
+
+Examples:
+
+- Multiple inventories
+- Multiple targeting segments
+- Multiple creative durations, if supported
+
+### Table
+
+When comparing multiple options.
+
+Examples:
+
+- Inventory comparison
+- Deals
+- CPM
+- Reach forecast
+- Duration
+- Availability
+
+### Confirmation button
+
+After the user has made a selection.
+
+Example:
+
+[Confirm]
+
+The agent should not use tables unnecessarily.
+
+The agent should not expose raw backend/schema data to the user.
+
+---
+
+# STEP 16 — CONVERSATION MUST FEEL REAL-TIME
+
+The agent should behave like a human campaign-planning assistant.
+
+Bad:
+
+"Please provide brand, product, market, inventory, dates, budget, creative duration, goal, KPI and targeting."
+
+Better:
+
+User:
+"I want to run a campaign in the UK."
+
+Agent:
+"Sure. What are you promoting?"
+
+User:
+"Running shoes."
+
+Agent:
+"Got it — running shoes in the UK. Do you already have an inventory in mind, or would you like me to show what's available?"
+
+This should continue naturally.
+
+Each response should ask for the NEXT meaningful decision rather than dumping a questionnaire on the user.
+
+---
+
+# STEP 17 — USER CAN CHANGE THEIR MIND
+
+The agent must support corrections.
+
+Example:
+
+User:
+"Budget is £15k."
+
+Later:
+
+"Actually make it £20k."
+
+Agent must update the strategy state.
+
+It must not keep using £15k.
+
+Similarly:
+
+User:
+"Use Prime Video."
+
+Later:
+
+"Actually use Netflix."
+
+Update the inventory.
+
+The latest valid user decision should override the previous one.
+
+---
+
+# STEP 18 — USER CAN PROVIDE INFORMATION OUT OF ORDER
+
+The agent must support this.
+
+Example:
+
+User:
+"I want 30-second ads."
+
+Then:
+
+"Budget is £15k."
+
+Then:
+
+"UK."
+
+Then:
+
+"October."
+
+The agent should maintain state and determine what remains missing.
+
+Do not restart the conversation.
+
+---
+
+# STEP 19 — USER CAN PROVIDE EVERYTHING IN ONE MESSAGE
+
+Example:
+
+"We're launching a new running shoe line in the UK. We have £15k from October 1 to 31 and want 30-second ads for awareness on Prime Video."
+
+Agent should:
+
+1. Extract all information.
+2. Validate all information.
+3. Check inventory.
+4. Identify missing required fields.
+5. If nothing critical is missing, show a concise summary.
+6. Continue to the next M1 section.
+7. Do not ask questions that have already been answered.
+
+---
+
+# STEP 20 — STRATEGY PLAN STATE
+
+The right-side Strategy Plan UI must update as information becomes validated.
+
+Example:
+
+Basic Details
+
+Brand: Running Shoe Brand
+Market: UK
+Flight: 1 Oct – 31 Oct
+Creative: 30s
+
+Goals, KPI & Bid
+
+Goal: Awareness
+KPI: Unique Reach
+Budget: £15,000
+Bid: ...
+
+CTV Inventory
+
+Inventory: Prime Video
+
+Targeting
+
+Status: Default / Refined
+
+Only mark a field as complete when it has been validated.
+
+Do not populate the Strategy Plan with fabricated/default values unless the schema explicitly defines them as defaults.
+
+---
+
+# STEP 21 — M1 COMPLETION
+
+M1 should only be considered complete when the required fields from:
+
+- Basic Details
+- Goals/KPI/Bid
+- CTV Inventory
+- Targeting
+
+are satisfied according to the Strategy Schema.
+
+Before finishing M1, run a final validation.
+
+Check:
+
+- All required fields present
+- Values validated
+- Inventory available
+- Dates valid
+- Creative duration supported
+- Budget valid
+- Currency valid
+- Goal valid
+- KPI compatible with Goal
+- Bid valid according to inventory/deal
+- Targeting valid
+- No hallucinated values
+- No unresolved validation errors
+
+Then show a concise Strategy Plan summary.
+
+Example:
+
+## Strategy Plan
+
+| Section | Details |
+|---|---|
+| Campaign | Running shoe launch |
+| Market | UK |
+| Flight | 1 Oct – 31 Oct |
+| Creative | 30s |
+| Goal | Awareness |
+| KPI | Unique Reach |
+| Budget | £15,000 |
+| Inventory | Prime Video |
+| Targeting | UK baseline |
+
+Then provide:
+
+[Review Strategy Plan]
+
+Do not proceed to later M2 stages unless the user approves the M1 strategy plan.
+
+---
+
+# STEP 22 — TEST CASES
+
+Before considering M1 complete, test at minimum:
+
+### Test 1
+"I want to run a campaign."
+
+### Test 2
+"I want to run a campaign in the UK."
+
+### Test 3
+"We're launching a new running shoe line."
+
+### Test 4
+"We're launching a new running shoe line in the UK."
+
+### Test 5
+"We're launching a new running shoe line, want to run something on Prime Video in the UK."
+
+### Test 6
+"I have £15k for a running shoe campaign in the UK."
+
+### Test 7
+"I have £15k for a running shoe campaign in the UK from October 1 to 31."
+
+### Test 8
+"I have £15k for a running shoe campaign in the UK from October 1 to 31, probably 30 seconds."
+
+### Test 9
+"We're launching a new running shoe line in the UK. We have £15k from October 1 to 31 and want 30-second ads for awareness."
+
+### Test 10
+"We're launching a new running shoe line, want to run something on Zee TV in the UK."
+
+Expected:
+Zee TV must be validated and, if unavailable, must NOT appear as a selectable inventory.
+
+### Test 11
+User selects "Show available inventory."
+
+Expected:
+Only actual inventory returned by the registry/tool should appear.
+
+### Test 12
+User selects an inventory.
+
+Expected:
+Agent validates it and continues to the next missing M1 information.
+
+### Test 13
+User changes inventory.
+
+Expected:
+Strategy state updates.
+
+### Test 14
+User changes budget.
+
+Expected:
+Previous budget is replaced.
+
+### Test 15
+User provides all campaign details in one message.
+
+Expected:
+Agent extracts everything and skips unnecessary questions.
+
+### Test 16
+User provides information in random order.
+
+Expected:
+Agent maintains state correctly.
+
+### Test 17
+User provides invalid dates.
+
+Expected:
+Agent asks for correction.
+
+### Test 18
+User provides unsupported creative duration.
+
+Expected:
+Agent checks actual inventory capability and explains the issue.
+
+### Test 19
+User provides unsupported inventory.
+
+Expected:
+Agent does not hallucinate it.
+
+### Test 20
+User says "No" when offered alternatives.
+
+Expected:
+Agent politely concludes the conversation instead of repeatedly asking the same question.
+
+Example:
+
+"No problem. We'll leave the campaign plan here for now. You can come back anytime when you're ready to continue."
+
+---
+
+# STEP 23 — AFTER EACH IMPLEMENTATION
+
+After implementing any part:
+
+1. Run backend tests.
+2. Run frontend tests.
+3. Test the relevant conversation manually.
+4. Inspect logs.
+5. Inspect API/network responses.
+6. Verify registry/MCP calls.
+7. Check that no static/hardcoded campaign data was introduced.
+8. Check Strategy Plan UI state.
+9. Check error handling.
+10. Report exactly what changed.
+
+Use:
+
+## Implementation Report
+
+### Completed
+- ...
+
+### Files changed
+- ...
+
+### Tests passed
+- ...
+
+### Tests failed
+- ...
+
+### Remaining issues
+- ...
+
+### Next recommended step
+- ...
+
+Then STOP and ask me before moving to the next major implementation step.
+
+---
+
+# MOST IMPORTANT RULES
+
+1. Do not hallucinate.
+2. Do not invent registry data.
+3. Do not hardcode inventory.
+4. Do not hardcode CPM/reach/deals.
+5. Always validate user-provided entities against actual available data.
+6. Preserve information already provided by the user.
+7. Ask only for missing information.
+8. Do not ask questions unnecessarily.
+9. Do not expose unavailable inventory as selectable.
+10. Do not show "Keep Zee TV" when Zee TV is unavailable.
+11. Use the correct UI control for each decision.
+12. Use tables only when comparison is useful.
+13. Use radio buttons for single selection.
+14. Use checkboxes for multiple selections.
+15. Keep the conversation natural and incremental.
+16. Support users changing their decisions.
+17. Support users giving information in any order.
+18. Support users providing the entire brief in one message.
+19. Keep Strategy Plan state synchronized with validated agent state.
+20. Follow `Strategy_Schema_v4.0_FINAL.pdf` and the flowchart as the source of truth.
+21. Do not modify working functionality without first understanding and testing it.
+22. Do not start implementation until the initial audit is complete and reported.
+23. Do not proceed from M1 to later stages without user approval.

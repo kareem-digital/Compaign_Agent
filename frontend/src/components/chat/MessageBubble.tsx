@@ -1,3 +1,4 @@
+import { DateRangePickerCard } from "@/components/chat/DateRangePickerCard";
 import { OptionsBlockCard } from "@/components/chat/OptionsBlockCard";
 import { BrandMark } from "@/components/icons";
 import type { ElicitationSubmission } from "@/hooks/use-chat";
@@ -13,7 +14,7 @@ interface MessageBubbleProps {
   /** The one question the user may answer, or null. */
   activeElicitationId: string | null;
   submissions: Record<string, ElicitationSubmission>;
-  onAnswer: (block: OptionsBlock, draft: DraftSelection) => void;
+  onAnswer: (block: any, draft: DraftSelection) => void;
 }
 
 /**
@@ -66,6 +67,18 @@ export function MessageBubble({
           if (block.type === "options") {
             return (
               <OptionsBlockCard
+                key={key}
+                block={block}
+                interactive={block.id === activeElicitationId}
+                submission={submissions[block.id]}
+                onAnswer={onAnswer}
+              />
+            );
+          }
+
+          if (block.type === "date_picker") {
+            return (
+              <DateRangePickerCard
                 key={key}
                 block={block}
                 interactive={block.id === activeElicitationId}

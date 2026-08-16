@@ -69,6 +69,7 @@ _NEXT_STAGE = {
     "inventory": "suggest_audiences",
     "audiences": "predict_reach",
     "forecast": "plan_ready",
+    "concluded": "ask",
 }
 
 

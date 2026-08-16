@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from app.agent.checkpointer import create_checkpointer
 from app.agent.graph import build_graph
-from app.api.presentation import Block, build_blocks
+from app.api.presentation import Block, build_blocks, summary_block
 from app.config import get_settings
 from app.core.context import bind
 from app.core.exceptions import (
@@ -72,7 +72,12 @@ async def _get_graph(advertiser_id: str):
 
 
 class ChatRequest(BaseModel):
-    message: str = Field(..., min_length=1, max_length=2000)
+    message: str | None = Field(
+        None, max_length=2000, description="Plain text user message."
+    )
+    content: list[dict] = Field(
+        default_factory=list, description="Structured content blocks."
+    )
     session_id: str = Field(
         default_factory=lambda: str(uuid.uuid4()),
         description="Send the same ID to continue a conversation; omit to start new.",
@@ -91,6 +96,15 @@ class ChatResponse(BaseModel):
             "The reply broken into renderable pieces. Each says what it is, how "
             "it should appear, and carries the data behind it. `reply` remains "
             "the plain-text equivalent."
+        ),
+    )
+    plan_state: dict = Field(
+        default_factory=dict,
+        description=(
+            "Current plan field values for the strategy panel. Always present, "
+            "regardless of which chat block this turn emits. Keys match "
+            "_SUMMARY_ROWS fields: brand, markets, flight_dates, durations, "
+            "market_budgets, goal, kpi. Values are human-readable strings."
         ),
     )
 
@@ -126,6 +140,18 @@ async def chat(
     graph = await _get_graph(advertiser_id)
     thread_config = {"configurable": {"thread_id": request.session_id}}
 
+    # Determine effective message text from request.message or request.content
+    effective_message = (request.message or "").strip()
+    if not effective_message and request.content:
+        for item in request.content:
+            if isinstance(item, dict):
+                if item.get("custom_text"):
+                    effective_message = str(item.get("custom_text")).strip()
+                elif item.get("selected_option_ids"):
+                    effective_message = ", ".join(item.get("selected_option_ids"))
+    if not effective_message:
+        effective_message = "option selected"
+
     # Message count before this turn, so we can return only what this turn said
     # rather than the whole transcript.
     prior = await graph.aget_state(thread_config)
@@ -134,15 +160,15 @@ async def chat(
     started = time.monotonic()
     logger.info(
         "turn.start",
-        extra=kv(turn=(prior_count // 5) + 1, message_chars=len(request.message)),
+        extra=kv(turn=(prior_count // 5) + 1, message_chars=len(effective_message)),
     )
     # The brief itself is client-commercial data, so content stays at DEBUG.
-    logger.debug("turn.message", extra=kv(text=request.message))
+    logger.debug("turn.message", extra=kv(text=effective_message))
 
     try:
         result = await graph.ainvoke(
             {
-                "messages": [{"role": "user", "content": request.message}],
+                "messages": [{"role": "user", "content": effective_message}],
                 "advertiser_id": advertiser_id,
                 "session_id": request.session_id,
             },
@@ -219,11 +245,38 @@ async def chat(
 
     # The graph runs several nodes per turn and each one speaks. Joined into one
     # string so the transport contract stays a single reply.
+    summary = summary_block(result)
+    plan_dict = {
+        row["field"]: row["value"]
+        for row in summary.data.get("rows", [])
+    }
+    deals = result.get("selected_deals") or []
+    preferred = result.get("preferred_providers") or []
+    if preferred:
+        plan_dict["inventory"] = ", ".join(preferred)
+    elif deals:
+        plan_dict["inventory"] = ", ".join(dict.fromkeys(d.get("provider", "") for d in deals if d.get("provider")))
+
+    if result.get("chosen_audience"):
+        aud = result["chosen_audience"]
+        profile = aud.get("profile", "")
+        plan_dict["audience"] = f"{profile.title()} ({aud.get('name', '')})" if profile else aud.get("name", "Balanced")
+        if aud.get("effective_cpm"):
+            plan_dict["bid"] = f"£{aud['effective_cpm']} effective CPM"
+    elif deals:
+        plan_dict["bid"] = f"£{deals[0]['cpm']} deal CPM"
+
+    if result.get("locations"):
+        plan_dict["targeting"] = ", ".join(result["locations"])
+    elif result.get("markets"):
+        plan_dict["targeting"] = f"Default {result['markets'][0]}-wide"
+
     return ChatResponse(
         session_id=request.session_id,
         reply="\n\n".join(r for r in replies if r),
         stage=result.get("current_stage"),
         blocks=build_blocks(result),
+        plan_state=plan_dict,
     )
 
 

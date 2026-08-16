@@ -45,29 +45,56 @@ def log_usage(label: str, raw_message, duration_ms: int) -> None:
 def get_llm():
     """The configured chat model, or None when no key is set.
 
+    Supports both OpenAI and Anthropic (Claude). Controlled by LLM_PROVIDER in .env.
     Cached: building the client each call would re-read config and re-create an
     HTTP pool on every message.
     """
     settings = get_settings()
+    provider = settings.llm_provider.lower()
 
-    if not settings.openai_api_key:
-        logger.info("No OPENAI_API_KEY set - using pattern matching instead of an LLM.")
-        return None
-
-    try:
-        from langchain_openai import ChatOpenAI
-    except ImportError:
-        logger.warning(
-            "OPENAI_API_KEY is set but langchain-openai is not installed. "
-            "Run: pip install -r requirements.txt. Falling back to pattern matching."
+    if provider == "anthropic":
+        key = settings.anthropic_api_key
+        if not key:
+            logger.info("No ANTHROPIC_API_KEY set - using pattern matching instead of an LLM.")
+            return None
+        try:
+            from langchain_anthropic import ChatAnthropic
+        except ImportError:
+            logger.warning(
+                "ANTHROPIC_API_KEY is set but langchain-anthropic is not installed. "
+                "Run: pip install langchain-anthropic. Falling back to pattern matching."
+            )
+            return None
+        model = settings.llm_model or "claude-sonnet-4-5"
+        logger.info("Using %s (Anthropic) for brief understanding.", model)
+        return ChatAnthropic(
+            model=model,
+            temperature=settings.llm_temperature,
+            api_key=key,
+            timeout=30,
+            max_retries=2,
         )
-        return None
 
-    logger.info("Using %s for brief understanding.", settings.llm_model)
-    return ChatOpenAI(
-        model=settings.llm_model,
-        temperature=settings.llm_temperature,
-        api_key=settings.openai_api_key,
-        timeout=30,
-        max_retries=2,
-    )
+    else:  # openai (default fallback)
+        key = settings.openai_api_key
+        if not key:
+            logger.info("No OPENAI_API_KEY set - using pattern matching instead of an LLM.")
+            return None
+        try:
+            from langchain_openai import ChatOpenAI
+        except ImportError:
+            logger.warning(
+                "OPENAI_API_KEY is set but langchain-openai is not installed. "
+                "Run: pip install -r requirements.txt. Falling back to pattern matching."
+            )
+            return None
+        model = settings.llm_model or "gpt-4o-mini"
+        logger.info("Using %s (OpenAI) for brief understanding.", model)
+        return ChatOpenAI(
+            model=model,
+            temperature=settings.llm_temperature,
+            api_key=key,
+            timeout=30,
+            max_retries=2,
+        )
+

@@ -46,6 +46,9 @@ def _question(missing: list[str]) -> str:
 
 async def ask_for_missing(state: PlanningAgentState) -> dict:
     """Ask for whatever the previous stage recorded as outstanding."""
+    if state.get("current_stage") == "concluded" or state.get("stage_cursor") == "concluded":
+        return {}
+
     missing = state.get("awaiting") or []
     if not missing:
         return {}
@@ -56,7 +59,7 @@ async def ask_for_missing(state: PlanningAgentState) -> dict:
     parts = list(stated)
     if gaps:
         parts.append(_question(gaps))
-    else:
+    elif not stated or not any(s.strip().endswith("?") for s in stated):
         parts.append("What would you like instead?")
 
     logger.info("gate.blocked", extra=kv(awaiting=missing, stated=len(stated), calls=0))
