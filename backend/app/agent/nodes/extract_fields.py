@@ -88,6 +88,14 @@ class BriefFields(BaseModel):
         None,
         description="Brand, product or campaign description the trader mentions, e.g. 'running shoes', 'coffee brand launch', 'Nike Air Max'. Leave null if not stated.",
     )
+    goal: str | None = Field(
+        None,
+        description="Campaign goal if explicitly stated: AWARENESS, CONSIDERATION, or CONVERSION. Leave null if not mentioned — the default will be applied.",
+    )
+    kpi: str | None = Field(
+        None,
+        description="KPI if explicitly stated: REACH, FREQUENCY, CTR, CPDPV, CPA, ROAS. Leave null if not mentioned.",
+    )
 
 
 # --- reading the conversation ------------------------------------------------
@@ -276,6 +284,8 @@ def _known_summary(state: PlanningAgentState) -> str:
             f"providers: {state.get('preferred_providers') or 'unknown'}",
             f"brand: {state.get('brand') or 'unknown'}",
             f"product_context: {state.get('product_context') or 'unknown'}",
+            f"goal: {state.get('goal') or 'unknown'}",
+            f"kpi: {state.get('kpi') or 'unknown'}",
         ]
     )
 
@@ -321,6 +331,11 @@ def _system_prompt() -> str:
         "PROVIDERS: extract any channel, network, or inventory provider names the trader "
         "mentions (e.g. 'Prime Video', 'Netflix', 'Zee TV', 'Peacock'). Return the exact "
         "names they asked for — deciding whether the platform carries them is not your job.\n"
+        "GOAL: extract the campaign goal ONLY if explicitly stated. Valid values: "
+        "AWARENESS, CONSIDERATION, CONVERSION. If the trader says 'awareness' extract AWARENESS. "
+        "If not stated, return null — do NOT default it here.\n"
+        "KPI: extract the KPI ONLY if explicitly stated. Valid values: REACH, FREQUENCY, "
+        "CTR, CPDPV, CPA, ROAS. If not stated, return null.\n"
         "BRAND: extract the advertiser brand name if mentioned "
         "(e.g. 'Nike', 'Mega Toothpaste', 'Adidas'). Carry forward the "
         "existing value if not changed. Leave null if genuinely not mentioned.\n"
@@ -524,6 +539,8 @@ def providers_resolved(state: PlanningAgentState, unavailable: list[str]) -> boo
 def _confirmation(fields: dict) -> str:
     dates = fields.get("flight_dates")
     budgets = fields.get("market_budgets")
+    goal_val = fields.get("goal", "AWARENESS")
+    kpi_val = fields.get("kpi", "REACH")
 
     return "\n".join(
         [
@@ -538,7 +555,7 @@ def _confirmation(fields: dict) -> str:
                 if budgets
                 else "- Budget: not stated"
             ),
-            "- Goal: Awareness, measured on reach (fixed for CTV)",
+            f"- Goal: {goal_val.title()}, KPI: {kpi_val.title()}",
         ]
     )
 
@@ -662,6 +679,38 @@ def make_extract_fields(registry):
         # product_context kept for plan_ready.py backward compat — mirrors brand.
         product_context = brand or state.get("product_context")
 
+        # Goal: schema-driven default (AWARENESS per Schema v4.0 §4.8).
+        # Not a constant — user can change it. Agent advises on non-Awareness, never blocks.
+        extracted_goal = (found.goal or "").upper().strip()
+        valid_goals = {g["value"] for g in reference.goals()}
+        if extracted_goal and extracted_goal in valid_goals:
+            goal = extracted_goal
+        else:
+            # Carry forward what was previously set; default to AWARENESS
+            goal = state.get("goal") or "AWARENESS"
+
+        # KPI: derived from goal per schema v4.0 §4.8.
+        extracted_kpi = (found.kpi or "").upper().strip()
+        valid_kpis_for_goal = {k["value"] for k in reference.kpis_for_goal(goal)}
+        if extracted_kpi and extracted_kpi in valid_kpis_for_goal:
+            kpi = extracted_kpi
+        else:
+            # Carry forward or default to the goal's default KPI
+            prev_kpi = (state.get("kpi") or "").upper()
+            if prev_kpi in valid_kpis_for_goal:
+                kpi = prev_kpi
+            else:
+                default_kpi_entry = reference.default_kpi(goal)
+                kpi = default_kpi_entry["value"] if default_kpi_entry else "REACH"
+
+        # Advisory note: if the user explicitly picked a non-Awareness goal,
+        # surface the advisory (schema says: advise, do not block).
+        goal_advisory = None
+        if goal != "AWARENESS" and goal != state.get("goal"):
+            goal_record = next((g for g in reference.goals() if g["value"] == goal), None)
+            if goal_record and goal_record.get("advisory_note"):
+                goal_advisory = goal_record["advisory_note"]
+
         result = {
             **fields,
             "current_stage": STAGE,
@@ -671,13 +720,17 @@ def make_extract_fields(registry):
             "audience_refinement": audience_refinement,
             "locations": locations,
             "plan_approved": plan_approved,
-            "goal": "AWARENESS",
-            "kpi": "reach",
+            "goal": goal,
+            "kpi": kpi,
             "rejected_fields": rejected,
             # Persist unavailable channels so they survive across turns (TC-014)
             "unavailable_requested_channels": [] if awaiting_choice is None and not unavailable_providers else (unavailable_providers or state.get("unavailable_requested_channels") or []),
             "awaiting_choice": awaiting_choice,
         }
+
+        # If there's a goal advisory note, prepend it to blocking so the agent surfaces it
+        if goal_advisory:
+            blocking = [goal_advisory] + blocking
 
         # The gate: whatever is still missing stops the graph here and gets asked for.
         if force_show_inventory:

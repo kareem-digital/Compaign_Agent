@@ -26,6 +26,7 @@ presentation. A model choosing layouts would render the same data differently
 on two runs - users notice, and tests cannot pin it down.
 """
 
+from datetime import date
 from enum import StrEnum
 
 from pydantic import BaseModel, Field
@@ -115,15 +116,17 @@ def _format_value(field: str, state: dict) -> str:
         currency = state.get("primary_currency") or ""
         return f"{budgets[0]['budget']} {currency}".strip()
 
-    # Goal and KPI are fixed for CTV — auto-confirmed, never asked.
-    # Label them explicitly so traders understand they're system defaults.
+    # Goal and KPI: show the actual selected/default value from schema.
     if field == "goal":
-        value = state.get("goal")
-        return "Awareness (fixed for CTV)" if value else NOT_STATED
+        value = (state.get("goal") or "").upper()
+        goal_labels = {g["value"]: g["label"] for g in reference.goals()}
+        return goal_labels.get(value, value.title()) if value else NOT_STATED
 
     if field == "kpi":
-        value = state.get("kpi")
-        return "Unique reach (fixed for CTV)" if value else NOT_STATED
+        value = (state.get("kpi") or "").upper()
+        goal = (state.get("goal") or "AWARENESS").upper()
+        kpi_labels = {k["value"]: k["label"] for k in reference.kpis_for_goal(goal)}
+        return kpi_labels.get(value, value.title()) if value else NOT_STATED
 
     return str(state.get(field) or NOT_STATED)
 

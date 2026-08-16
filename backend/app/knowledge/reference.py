@@ -101,3 +101,32 @@ def tier_for_provider(name: str) -> str | None:
 def currency_for(market: str) -> str | None:
     """The currency a market trades in, or None if we don't sell there."""
     return next((m.get("currency") for m in markets() if m["value"] == market), None)
+
+
+def goals() -> list[dict]:
+    """Campaign goals from the platform schema (v4.0 §4.8).
+
+    Awareness is the default for CTV. Non-Awareness goals are valid but
+    should be advised against — the agent advises, never blocks.
+    """
+    return list(_data().get("goals") or [])
+
+
+def default_goal() -> dict | None:
+    """The goal that is pre-filled for CTV (Awareness)."""
+    return next((g for g in goals() if g.get("default")), None)
+
+
+def kpis_for_goal(goal_value: str) -> list[dict]:
+    """KPI options for a given goal value (e.g. 'AWARENESS' -> [Reach, Frequency]).
+
+    Returns an empty list if the goal is unknown.
+    Per schema v4.0 §4.8 and review comment 30: KPI list is conditional on goal.
+    """
+    kpi_map: dict = _data().get("kpis") or {}
+    return list(kpi_map.get(goal_value.upper(), []))
+
+
+def default_kpi(goal_value: str) -> dict | None:
+    """The default KPI for a given goal (the one marked default: true)."""
+    return next((k for k in kpis_for_goal(goal_value) if k.get("default")), None)

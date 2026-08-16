@@ -61,3 +61,61 @@ inventory_tiers:
   - value: THIRD_PARTY_NEEDS_CURATION
     label: Third-party, needs curation
     note: Rate card only
+
+# Campaign goals — per Schema v4.0 §4.8 and review comments 29-30.
+#
+# Awareness is the DEFAULT for CTV (not a constant — the trader can change it).
+# Non-Awareness goals should be advised against (not blocked) — CTV tracking
+# further down the funnel is unreliable on streaming inventory.
+# Source: review comment 30: "we don't advise to do non awareness but we should
+# not stop the user selecting an alternative."
+goals:
+  - value: AWARENESS
+    label: Awareness
+    description: Build brand recognition and visibility
+    default: true
+    advised_for_ctv: true
+  - value: CONSIDERATION
+    label: Consideration
+    description: Drive interest and intent
+    default: false
+    advised_for_ctv: false
+    advisory_note: "CTV is primarily an awareness channel — tracking consideration metrics on streaming inventory is unreliable. I'd recommend Awareness, but the choice is yours."
+  - value: CONVERSION
+    label: Conversion
+    description: Drive purchases or specific actions
+    default: false
+    advised_for_ctv: false
+    advisory_note: "CTV isn't the strongest channel for conversion tracking — streaming inventory makes attribution difficult. Awareness is more reliable, but you can proceed if that's your goal."
+
+# KPI options per goal — per Schema v4.0 §4.8, table "KPI options follow the goal".
+# Open decision D12 in schema: ideally from GET /api/strategies/choices/
+# Using verified values for Awareness; Consideration/Conversion mapped from schema.
+kpis:
+  AWARENESS:
+    - value: REACH
+      label: Unique Reach
+      description: Number of unique viewers reached
+      default: true
+    - value: FREQUENCY
+      label: Frequency
+      description: Average number of times each viewer sees the ad
+      default: false
+  CONSIDERATION:
+    - value: CTR
+      label: Click-Through Rate
+      description: Percentage of viewers who click the ad
+      default: true
+    - value: CPDPV
+      label: Cost Per Detail Page View
+      description: Cost per Amazon product page visit
+      default: false
+  CONVERSION:
+    - value: CPA
+      label: Cost Per Acquisition
+      description: Cost per completed action or purchase
+      default: true
+    - value: ROAS
+      label: Return on Ad Spend
+      description: Revenue generated per pound spent
+      default: false
