@@ -7,7 +7,7 @@ and no secret is ever committed - see .env.example for the shape.
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -39,19 +39,20 @@ class Settings(BaseSettings):
 
     # --- API ---
     api_prefix: str = "/api/v1"
-    # **Both frontend dev ports, because the project runs on both by design.** `npm run dev`
-    # serves the standalone app on 3000 and `npm run dev:remote` serves the Module Federation
-    # remote on 3001 - see `frontend/package.json`. The default allowed only 3000, so anyone
-    # testing the remote got a request the backend answered with 200 and the browser then
-    # refused to hand to the page: DevTools showed `(failed)`, 0 bytes, no status code, and
-    # the UI said "The agent could not be reached".
-    #
-    # A missing CORS origin is invisible from the server side - the log records a successful
-    # turn - which is why the default has to be right rather than left to an `.env` nobody
-    # knows they need. `.env.example` has always documented both; this now matches it.
-    cors_origins: list[str] = Field(
-        default_factory=lambda: ["http://localhost:3000", "http://localhost:3001"]
-    )
+    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
+
+    # --- VOW OpenID Provider / access-token validation ---
+    # `local` bypasses bearer-token validation and is rejected unless the
+    # service also runs with ENVIRONMENT=local.
+    auth_mode: Literal["oidc", "local"] = "oidc"
+    local_auth_subject: str = Field(default="local-development-user", min_length=1)
+    local_auth_client_id: str = Field(default="vow-agent-local", min_length=1)
+    vow_oidc_issuer: str = "http://localhost:8000/api/identity/oauth2"
+    vow_oidc_jwks_url: str = ""
+    vow_agent_audience: str = "http://localhost:8001"
+    vow_agent_required_scopes: list[str] = Field(default_factory=lambda: ["read"])
+    vow_oidc_jwks_cache_seconds: int = Field(default=300, ge=0)
+    vow_oidc_clock_skew_seconds: int = Field(default=30, ge=0, le=300)
 
     # --- Database (PLT-03 checkpointer, KNW registry) ---
     database_url: str = "postgresql+asyncpg://vowagent:vowagent@localhost:5432/vowagent"
@@ -61,31 +62,29 @@ class Settings(BaseSettings):
     use_memory_checkpointer: bool = True
 
     # --- Grounded registry (KNW-02) ---
-    # Reference data ingested from VOW through MCP, so the flow's valid values come from the
-    # platform rather than from constants in our nodes. In-process only for now: the snapshot is
-    # derived data, rebuildable in a handful of tool calls, and requiring Postgres for it would
-    # make Postgres mandatory for the first time (see `use_memory_checkpointer` above).
-    #
-    # **Copied verbatim from the KNW-02 lane rather than reinvented.** Two lanes with two
-    # slightly different defaults for the same knob is a bug waiting for the day they disagree.
+    # Reference data ingested from VOW through MCP, so the flow's valid values
+    # come from the platform rather than from constants in our nodes. In-process
+    # only for now: the snapshot is derived data, rebuildable in a handful of
+    # tool calls, and requiring Postgres for it would make Postgres mandatory
+    # for the first time (see use_memory_checkpointer above).
     registry_ttl_seconds: int = 900
-    # Markets warmed on first sync. Everything else fills lazily on first use, because deals,
-    # rate cards, categories and targeting are all market-scoped and eager-fetching every
-    # market costs four calls each.
+    # Markets warmed on first sync. Everything else fills lazily on first use,
+    # because deals, rate cards, categories and targeting are all market-scoped
+    # and eager-fetching every market costs four calls each.
     registry_eager_markets: list[str] = Field(default_factory=lambda: ["GB"])
-    # True turns any degraded source into a hard failure. Worth setting in CI so drift is loud;
-    # left False in production so a dropdown's tool going missing cannot take the planning flow
-    # down.
+    # True turns any degraded source into a hard failure. Worth setting in CI so
+    # drift is loud; left False in production so a dropdown's tool going missing
+    # cannot take the planning flow down.
     registry_strict_sync: bool = False
-    # What to do when incoming data is not backward-compatible with the previous snapshot.
-    # "warn" swaps it in and logs loudly - planning against stale prices is worse than an
-    # alarming log line.
+    # What to do when incoming data is not backward-compatible with the previous
+    # snapshot. "warn" swaps it in and logs loudly - planning against stale
+    # prices is worse than an alarming log line.
     registry_on_breaking_change: Literal["accept", "warn", "reject"] = "warn"
-    # Above this share of a source's rows failing validation, treat the whole source as failed:
-    # the shape changed, rather than one row being bad.
+    # Above this share of a source's rows failing validation, treat the whole
+    # source as failed: the shape changed, rather than one row being bad.
     registry_max_reject_ratio: float = 0.25
-    # Empty uses the packaged data/targeting_types.json. Override to hot-patch the targeting
-    # types without a release.
+    # Empty uses the packaged data/targeting_types.json. Override to hot-patch
+    # the targeting types without a release.
     registry_targeting_config_path: str = ""
 
     # --- VOW platform access via MCP (replaces the REST wrappers) ---
@@ -96,9 +95,14 @@ class Settings(BaseSettings):
     mcp_server_url: str = ""
     mcp_timeout_seconds: float = 15.0
     mcp_max_retries: int = 3
-    # Auth seam - empty until the client confirms how the agent identifies
-    # itself (open question A1, blocks PLT-05).
-    mcp_auth_token: str = ""
+    mcp_protocol_version: str = "2026-07-28"
+    # Backend-only RFC 8693 credentials. The browser token is exchanged per
+    # request for a user-scoped token whose audience is the MCP server.
+    mcp_oauth_token_url: str = ""
+    mcp_oauth_client_id: str = ""
+    mcp_oauth_client_secret: SecretStr = SecretStr("")
+    mcp_oauth_resource: str = ""
+    mcp_oauth_scopes: list[str] = Field(default_factory=lambda: ["read"])
 
     # --- VOW platform REST access (legacy, app/tools/base.py) ---
     # Superseded by MCP above. Kept until the REST wrappers are retired in a
@@ -146,17 +150,103 @@ class Settings(BaseSettings):
     dev_advertiser_id: str = "dev-advertiser-0001"
 
     # --- LLM ---
-    # Supports OpenAI and Anthropic (Claude). Set LLM_PROVIDER to switch.
-    # Leave keys empty and the agent falls back to pattern matching.
-    llm_provider: str = "anthropic"   # "openai" or "anthropic"
+    # Used to understand briefs and to phrase follow-up questions. VOW already
+    # uses OpenAI for audience intelligence, so this keeps one provider.
+    # Leave the key empty and the agent falls back to pattern matching - less
+    # capable, but it means tests and CI never need a secret.
     openai_api_key: str = ""
     anthropic_api_key: str = ""
-    llm_model: str = "claude-sonnet-4-5"   # overridden per provider if blank
+    llm_provider: str = ""
+    llm_model: str = "claude-sonnet-4-5"
     llm_temperature: float = 0.0
+
+    # The turn's latency budget, divided. The browser stops waiting at 30 seconds
+    # (`frontend/src/lib/config.ts`), and a turn that overruns it renders as "the
+    # agent could not be reached" however well the turn actually went. Extraction
+    # may retry because without it there is no turn; voicing may not, because the
+    # computed prose is already there to fall back to.
+    llm_timeout_seconds: float = 10.0
+    llm_max_retries: int = 1
+
+    # Re-voice each turn's deterministic blocks into one reply - see `agent.voice`.
+    # Only has an effect when a key is configured, so turning it off is how you get
+    # the raw computed prose from a deployment that has one.
+    voice_enabled: bool = True
+    # Wall clock, not just the HTTP call: `voice.render_turn` enforces it with
+    # `asyncio.wait_for`. Generous against the ~6s the call now takes, because a
+    # deadline is a backstop and not a target.
+    voice_timeout_seconds: float = 12.0
+    # Phrasing is not a reasoning task, and on a reasoning model saying so is the
+    # difference between 22.6s and 5.5s per turn - measured on gpt-5-mini against
+    # a real plan. Applied only to models that accept it (see `llm._build`), so
+    # the gpt-4o-mini default is unaffected. Empty disables it.
+    voice_reasoning_effort: str = "low"
 
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
+
+    @property
+    def resolved_vow_oidc_jwks_url(self) -> str:
+        return self.vow_oidc_jwks_url or (
+            f"{self.vow_oidc_issuer.rstrip('/')}/.well-known/jwks.json"
+        )
+
+    @property
+    def resolved_mcp_oauth_token_url(self) -> str:
+        return self.mcp_oauth_token_url or f"{self.vow_oidc_issuer.rstrip('/')}/token/"
+
+    @property
+    def resolved_mcp_oauth_resource(self) -> str:
+        return self.mcp_oauth_resource or self.mcp_server_url
+
+    @model_validator(mode="after")
+    def validate_authentication_settings(self) -> "Settings":
+        if self.auth_mode == "local" and self.environment != "local":
+            raise ValueError("auth_mode='local' is allowed only when environment='local'")
+        if not self.vow_agent_required_scopes:
+            raise ValueError("vow_agent_required_scopes must not be empty")
+        if any(
+            not scope or any(char.isspace() for char in scope)
+            for scope in self.vow_agent_required_scopes
+        ):
+            raise ValueError("vow_agent_required_scopes must contain OAuth scope tokens")
+        if not self.use_mock_mcp:
+            required_mcp_settings = {
+                "mcp_server_url": self.mcp_server_url,
+                "mcp_oauth_client_id": self.mcp_oauth_client_id,
+                "mcp_oauth_client_secret": self.mcp_oauth_client_secret.get_secret_value(),
+                "mcp_oauth_resource": self.resolved_mcp_oauth_resource,
+            }
+            missing = sorted(name for name, value in required_mcp_settings.items() if not value)
+            if missing:
+                raise ValueError("live MCP requires: " + ", ".join(missing))
+            if not self.mcp_oauth_scopes or any(
+                not scope or any(char.isspace() for char in scope)
+                for scope in self.mcp_oauth_scopes
+            ):
+                raise ValueError("mcp_oauth_scopes must contain OAuth scope tokens")
+        if self.is_production:
+            urls = (
+                self.vow_oidc_issuer,
+                self.resolved_vow_oidc_jwks_url,
+                self.vow_agent_audience,
+                *(
+                    (
+                        self.mcp_server_url,
+                        self.resolved_mcp_oauth_token_url,
+                        self.resolved_mcp_oauth_resource,
+                    )
+                    if not self.use_mock_mcp
+                    else ()
+                ),
+                *self.cors_origins,
+            )
+            if any(not value.startswith("https://") for value in urls):
+                raise ValueError("production authentication URLs and origins must use HTTPS")
+            if "*" in self.cors_origins:
+                raise ValueError("production cors_origins must not contain a wildcard")
+        return self
 
 
 @lru_cache

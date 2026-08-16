@@ -11,7 +11,10 @@ from app.config import get_settings
 from app.governance.agt import get_guard
 
 CHAT = "/api/v1/sessions/chat"
-HEADERS = {"Vowmade-Advertiser-Id": "adv-123"}
+HEADERS = {
+    "Authorization": "Bearer test-access-token",
+    "Vowmade-Advertiser-Id": "adv-123",
+}
 BRIEF = "Plan a UK CTV campaign for August 2026, budget 50,000, 30 second creatives"
 
 

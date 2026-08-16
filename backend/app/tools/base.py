@@ -1,8 +1,11 @@
 """Base adapter for all VOW API calls.
 
 Every wrapper subclasses this. The base handles auth, advertiser scoping,
-pagination, timeouts, retries, error mapping, and logging — once.
+pagination, timeouts, retries and error mapping — once.
 Individual wrappers only describe WHAT to call, never HOW.
+
+Failures are carried by the raised `VowApiError` rather than logged here; this
+service logs registry and validation activity only.
 
 Usage:
     class DealsTool(BaseVOWTool):
@@ -10,8 +13,8 @@ Usage:
             return await self._get_paginated("/deals/", params={"markets": market})
 """
 
-import logging
 import time
+from typing import Any, cast
 
 import httpx
 
@@ -22,8 +25,6 @@ from app.core.exceptions import (
     VowAuthError,
 )
 from app.tools.auth import VOWAuthProvider
-
-logger = logging.getLogger(__name__)
 
 
 class BaseVOWTool:
@@ -85,16 +86,6 @@ class BaseVOWTool:
                     json=json,
                     timeout=self.settings.vow_api_timeout_seconds,
                 )
-                elapsed = time.monotonic() - start
-
-                logger.info(
-                    "VOW %s %s → %s (%.2fs)",
-                    method,
-                    path,
-                    response.status_code,
-                    elapsed,
-                )
-
                 # Auth failure — don't retry, it won't help
                 if response.status_code == 401:
                     raise VowAuthError("Authentication failed", status_code=401, endpoint=path)
@@ -109,13 +100,6 @@ class BaseVOWTool:
                         endpoint=path,
                     )
                     if attempt < self.settings.vow_api_max_retries:
-                        logger.warning(
-                            "VOW returned %s on %s, retry %s/%s",
-                            response.status_code,
-                            path,
-                            attempt,
-                            self.settings.vow_api_max_retries,
-                        )
                         continue
                     raise last_error
 
@@ -128,29 +112,17 @@ class BaseVOWTool:
                     )
 
                 # Success
-                return response.json()
+                return cast(dict[str, Any], response.json())
 
             except httpx.TimeoutException:
                 elapsed = time.monotonic() - start
                 last_error = VowApiError(f"Timeout after {elapsed:.1f}s", endpoint=path)
                 if attempt < self.settings.vow_api_max_retries:
-                    logger.warning(
-                        "Timeout on %s, retry %s/%s",
-                        path,
-                        attempt,
-                        self.settings.vow_api_max_retries,
-                    )
                     continue
 
             except httpx.RequestError as exc:
                 last_error = VowApiError(f"Network error: {exc}", endpoint=path)
                 if attempt < self.settings.vow_api_max_retries:
-                    logger.warning(
-                        "Network error on %s, retry %s/%s",
-                        path,
-                        attempt,
-                        self.settings.vow_api_max_retries,
-                    )
                     continue
 
         raise last_error or VowApiError("Failed after retries", endpoint=path)
@@ -190,7 +162,6 @@ class BaseVOWTool:
 
             # Safety: don't loop forever on a bug
             if page > 200:
-                logger.warning("Pagination exceeded 200 pages on %s — stopping", path)
                 break
 
         return all_results

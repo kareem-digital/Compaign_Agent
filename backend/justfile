@@ -1,0 +1,36 @@
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+# Show the available backend commands.
+default:
+    @just --list
+
+# Reproduce the locked development environment.
+sync:
+    uv sync --locked
+
+# Apply safe Ruff fixes and format backend Python files.
+format:
+    uv run --locked --no-sync ruff check --fix app tests
+    uv run --locked --no-sync ruff format app tests
+
+# Verify formatting without changing files.
+format-check:
+    uv run --locked --no-sync ruff check app tests
+    uv run --locked --no-sync ruff format --check app tests
+
+# Run the backend linters and preserve the Pylint report used by CI.
+lint: format-check
+    mkdir -p reports
+    uv run --locked --no-sync pylint app --output-format=text | tee reports/backend-Pylint_report.txt || true
+
+# Run static type checking.
+type-check:
+    uv run --locked --no-sync mypy app
+
+# Run tests with the reports and coverage configured in pyproject.toml.
+test:
+    mkdir -p reports
+    uv run --locked --no-sync pytest
+
+# Run the complete backend quality suite.
+ci: lint type-check test

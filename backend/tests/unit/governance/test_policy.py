@@ -53,20 +53,24 @@ def allowed(guard: PolicyGuard, tool: str, **arguments) -> bool:
 # --- planning: costless, and must keep working ------------------------------
 
 
-@pytest.mark.parametrize(
-    "tool",
-    [
-        VowTools.LIST_DEALS,
-        VowTools.CTV_RATE_CARD,
-        VowTools.SUGGEST_AUDIENCES,
-        VowTools.REACH_FORECAST,
-    ],
-)
+@pytest.mark.parametrize("tool", VowTools.all())
 def test_planning_tools_are_allowed(guard, tool):
-    """Also proves the names in `VowTools` match the names in the policy file.
+    """Every read tool the agent knows how to call must be permitted.
 
-    Rename a constant without editing the policy and the tool silently stops
-    being permitted - the agent would break for a reason nobody would guess.
+    Parametrized over `VowTools.all()` rather than a list restated here, because
+    the failure this catches is a name appearing in one place and not the other.
+    Rename a constant, or add one, without editing the policy and the tool
+    silently stops being permitted - the agent breaks for a reason nobody would
+    guess, since `default_action: deny` gives no hint that a rule is out of date.
+
+    That is not hypothetical: the grounded registry's seven reference-data reads
+    were added to `VowTools` in one lane while the policy was written in another,
+    and every registry sync was refused until the allow-list caught up. A list
+    written out by hand here would have passed throughout.
+
+    `VowTools` holds only reads, so this asserting "all of them" cannot become an
+    assertion that spend is permitted. `create_strategy` and `activate_strategy`
+    are absent from it on purpose and are covered by their own tests below.
     """
     assert allowed(guard, tool, market="GB")
 

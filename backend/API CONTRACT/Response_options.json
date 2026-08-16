@@ -1,0 +1,56 @@
+{
+    "session_id": "8230152f-c8fe-4999-afad-b9377d819759",
+    "stage": "basics",
+    "reply": "Found it — oral care, 14 ASINs on Amazon.",
+    "message": {
+        "id": "msg_d5449e51-a6cc-4ef3-b01d-21d00c1ee31f",
+        "role": "assistant",
+        "content": [
+            {
+                "type": "text",
+                "text": "Found it — oral care, 14 ASINs on Amazon."
+            },
+            {
+                "type": "options",
+                "id": "elc_markets.91292b88",
+                "prompt": "Which markets should it run in?",
+                "select": "multi",
+                "allow_custom": true,
+                "custom_placeholder": "Another market…",
+                "allow_skip": false,
+                "allow_reopen": false,
+                "status": "pending",
+                "options": [
+                    {
+                        "id": "opt_uk",
+                        "label": "UK",
+                        "description": "Ran last year · 1.4M addressable on Streaming TV",
+                        "badge": "Suggested"
+                    },
+                    {
+                        "id": "opt_usa",
+                        "label": "USA",
+                        "description": "Ran last year · deepest inventory, highest CPMs",
+                        "badge": "Suggested"
+                    },
+                    {
+                        "id": "opt_fr",
+                        "label": "France",
+                        "description": "New market · needs its own creative in French",
+                        "badge": null
+                    },
+                    {
+                        "id": "opt_de",
+                        "label": "Germany",
+                        "description": "New market · strong Prime Video base",
+                        "badge": null
+                    }
+                ],
+                "answer": null
+            }
+        ]
+    },
+    "resolved_elicitations": [],
+    "resolved_blocks": [],
+    "plan_version": 0
+}

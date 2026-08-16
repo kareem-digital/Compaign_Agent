@@ -38,22 +38,26 @@ rules:
   # -------------------------------------------------------------------------
   # Planning. Costless and reversible - these only read from VOW. Everything
   # the agent does today falls here.
-  # -------------------------------------------------------------------------
-  # The last three are the grounded registry's sources (KNW-02). They are reads of
-  # reference data - what markets exist, which tier a provider is, what contextual
-  # categories a market has - so they belong in this rule and not a looser one.
   #
-  # Adding them here was a deliberate step, and it is worth recording why: the three
-  # were denied on their first call with "No matching rules, using default". That is
-  # the policy working. A tool the agent gains has to be allowed on purpose, never by
-  # a wildcard, which is the whole reason the default is deny.
+  # This list must stay equal to `VowTools.all()`, which is every read tool the
+  # agent knows how to call. `test_planning_tools_are_allowed` parametrizes over
+  # that method rather than restating the names, so adding a constant without
+  # adding it here fails the suite instead of failing closed in production - the
+  # exact way the grounded registry's seven reference-data reads were silently
+  # denied when the two lanes first met.
+  #
+  # Nothing here is a write. The tools that make something real in VOW
+  # (create_strategy, activate_strategy) are deliberately absent from `VowTools`
+  # and have their own rules below, so widening this list cannot accidentally
+  # permit spend.
+  # -------------------------------------------------------------------------
   - name: allow-planning-tools
     condition: >-
       action.type in ['vow.list_deals', 'vow.get_ctv_rate_card',
       'vow.suggest_audiences', 'vow.reach_forecast',
       'vow.get_deal_filter_properties', 'vow.list_inventory_sources',
-      'vow.list_product_categories', 'vow.list_locations',
-      'vow.get_targeting_options', 'vow.check_strategy_name_uniqueness']
+      'vow.list_product_categories', 'vow.check_strategy_name_uniqueness',
+      'vow.list_locations', 'vow.get_targeting_options']
     action: allow
 
   # -------------------------------------------------------------------------

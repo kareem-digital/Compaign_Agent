@@ -26,12 +26,10 @@ presentation. A model choosing layouts would render the same data differently
 on two runs - users notice, and tests cannot pin it down.
 """
 
-from datetime import date
 from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
-from app.agent.nodes.select_inventory import AMAZON_OWNED
 from app.knowledge import reference
 
 
@@ -65,10 +63,14 @@ class Block(BaseModel):
     text: str = Field(..., description="What a human reads.")
     interaction: Interaction = Field(..., description="Authoritative.")
     layout: Layout = Field(..., description="Suggested; may be overridden.")
+    # `default=` by keyword, not positionally: without the pydantic mypy plugin
+    # these models are read under PEP 681, which only treats a field as optional
+    # when the field specifier names `default`. Positionally they read as
+    # required and every construction site that omits them fails type-check.
     primary: bool = Field(
-        False, description="The main artifact for this step, rather than conversation."
+        default=False, description="The main artifact for this step, rather than conversation."
     )
-    field: str | None = Field(None, description="Which plan field this block sets, if any.")
+    field: str | None = Field(default=None, description="Which plan field this block sets, if any.")
     data: dict = Field(default_factory=dict, description="Structured content.")
 
 
@@ -77,7 +79,6 @@ class Block(BaseModel):
 # Order matters: this is the order a trader reads them in, not the order the
 # schema happens to declare them.
 _SUMMARY_ROWS = (
-    ("brand", "Brand"),
     ("markets", "Markets"),
     ("flight_dates", "Flight"),
     ("durations", "Creative durations"),
@@ -95,9 +96,6 @@ def _format_value(field: str, state: dict) -> str:
     Formatting lives here rather than in the browser: one place, testable, and
     consistent across any client that consumes this.
     """
-    if field == "brand":
-        return state.get("brand") or NOT_STATED
-
     if field == "markets":
         return ", ".join(state.get("markets") or []) or NOT_STATED
 
@@ -116,18 +114,6 @@ def _format_value(field: str, state: dict) -> str:
         currency = state.get("primary_currency") or ""
         return f"{budgets[0]['budget']} {currency}".strip()
 
-    # Goal and KPI: show the actual selected/default value from schema.
-    if field == "goal":
-        value = (state.get("goal") or "").upper()
-        goal_labels = {g["value"]: g["label"] for g in reference.goals()}
-        return goal_labels.get(value, value.title()) if value else NOT_STATED
-
-    if field == "kpi":
-        value = (state.get("kpi") or "").upper()
-        goal = (state.get("goal") or "AWARENESS").upper()
-        kpi_labels = {k["value"]: k["label"] for k in reference.kpis_for_goal(goal)}
-        return kpi_labels.get(value, value.title()) if value else NOT_STATED
-
     return str(state.get(field) or NOT_STATED)
 
 
@@ -145,19 +131,8 @@ def summary_block(state: dict) -> Block:
     ]
     known = sum(1 for row in rows if row["value"] != NOT_STATED)
 
-    deals = state.get("selected_deals") or []
-    preferred = state.get("preferred_providers") or []
-    inv_name = preferred[0] if preferred else (deals[0]["provider"] if deals else None)
-    market = (state.get("markets") or [""])[0]
-    if inv_name and market:
-        intro_text = f"Got it — {inv_name} in {market}. To complete your plan, please provide the remaining details:"
-    elif market:
-        intro_text = f"Got it — campaign in {market}. To continue, please provide the following details:"
-    else:
-        intro_text = "To build your campaign plan, please provide the following details:"
-
     return Block(
-        text=intro_text,
+        text="Here's what I understood - correct anything that's wrong.",
         interaction=Interaction.NONE,
         layout=Layout.SUMMARY_LIST,
         data={"rows": rows, "known": known, "total": len(rows)},
@@ -170,6 +145,32 @@ def summary_block(state: dict) -> Block:
 # because everything downstream depends on it: durations are validated against a
 # market's rate card, deals are filtered by market, audiences follow the deals.
 _ASK_ORDER = ("markets", "flight_dates", "durations", "market_budgets")
+
+# Which state keys count as having answered each ask. The same keys
+# `gates.BASICS` uses, and for the same reason: `flight_dates` and
+# `market_budgets` are derived and stay empty until whole, so reading them here
+# would re-ask for something the trader already gave. A budget named before a
+# market lives in `budget_amount` and cannot be keyed to a market yet - asking
+# for it again is the exact bug
+# `test_a_budget_given_before_a_market_is_not_asked_for_twice` exists to catch.
+#
+# The dict key is still the plan field a client sets, so the wire contract is
+# unchanged; only the "do we have it?" test moved to the raw slots.
+_ANSWERED_BY = {
+    "markets": ("markets",),
+    "flight_dates": ("flight_start", "flight_end"),
+    "durations": ("durations",),
+    "market_budgets": ("budget_amount",),
+}
+
+
+def _is_answered(field: str, state: dict) -> bool:
+    """Whether the plan already holds an answer for one ask.
+
+    Answered means every key the field needs is present, so a half-given flight
+    still counts as outstanding - a date range with one end is not an answer.
+    """
+    return all(state.get(key) for key in _ANSWERED_BY[field])
 
 
 def _ask_for(field: str, state: dict) -> Block | None:
@@ -191,102 +192,61 @@ def _ask_for(field: str, state: dict) -> Block | None:
         )
 
     if field == "flight_dates":
-        deals = state.get("selected_deals") or []
-        preferred = state.get("preferred_providers") or []
-        inv_name = preferred[0] if preferred else (deals[0]["provider"] if deals else None)
-        market = (state.get("markets") or ["GB"])[0]
-        prefix = f"Got it — {inv_name} in {market}. " if inv_name else (f"Got it — campaign in {market}. " if market else "")
-        prompt_text = "Flight dates must be upcoming. When should the campaign run?" if "flight_dates" in (state.get("rejected_fields") or []) else f"{prefix}When should the campaign run?"
         return Block(
-            text=prompt_text,
+            text="When should it run?",
             interaction=Interaction.INPUT_DATE_RANGE,
             layout=Layout.DATE_RANGE_PICKER,
             field=field,
-            data={"earliest": date.today().isoformat()},
+            data={"earliest": "today"},
         )
 
     if field == "durations":
-        prompt_text = "Please choose a supported creative length (10s, 15s, 20s, or 30s):" if "durations" in (state.get("rejected_fields") or []) else "Which creative length would you like to use?"
         return Block(
-            text=prompt_text,
-            interaction=Interaction.SELECT_ONE,
+            text="Which creative lengths?",
+            interaction=Interaction.SELECT_MANY,
             layout=Layout.CHIPS,
             field=field,
-            data={
-                "options": [
-                    {"value": "15", "label": "15s", "description": "Standard short CTV format"},
-                    {"value": "30", "label": "30s", "description": "Standard full CTV format", "badge": "Recommended", "recommended": True},
-                    {"value": "10", "label": "10s", "description": "Short bumper format"},
-                    {"value": "20", "label": "20s", "description": "Medium format"},
-                ]
-            },
+            # A closed set: VOW sells exactly these, so offer them rather than
+            # accept free text and have to reject "45" afterwards.
+            data={"options": [{"value": d, "label": f"{d}s"} for d in reference.durations()]},
         )
 
     if field == "market_budgets":
+        # The currency follows the market where we know it, so a US plan is not
+        # quoted in pounds.
         chosen = (state.get("markets") or [None])[0]
         currency = reference.currency_for(chosen) or state.get("primary_currency") or "GBP"
-        symbol = "£" if currency == "GBP" else ("$" if currency == "USD" else "€")
         return Block(
-            text=f"What budget would you like to allocate for this campaign ({currency})?",
-            interaction=Interaction.SELECT_ONE,
-            layout=Layout.CHIPS,
+            text="What's the budget?",
+            interaction=Interaction.INPUT_MONEY,
+            layout=Layout.CURRENCY_INPUT,
             field=field,
-            data={
-                "options": [
-                    {"value": f"15000 {currency}", "label": f"{symbol}15,000", "description": f"Standard starting budget ({currency})"},
-                    {"value": f"20000 {currency}", "label": f"{symbol}20,000", "description": f"Recommended mid-tier budget ({currency})", "badge": "Recommended", "recommended": True},
-                    {"value": f"25000 {currency}", "label": f"{symbol}25,000", "description": f"High reach budget ({currency})"},
-                    {"value": f"50000 {currency}", "label": f"{symbol}50,000", "description": f"Scale budget ({currency})"},
-                ]
-            },
+            data={"currency": currency, "minimum": 1},
         )
 
     return None
 
 
 def input_blocks(state: dict) -> list[Block]:
-    """One block per field the plan still needs - or the one it cannot accept."""
-    if state.get("current_stage") == "concluded" or state.get("stage_cursor") == "concluded":
-        return []
+    """One block per field the plan still needs.
 
-    # When the user's requested inventory is unavailable, surface it before
-    # asking for missing basics — the trader needs to redirect first.
-    unavailable = state.get("unavailable_requested_channels") or []
-    if unavailable:
-        channel_names = ", ".join(unavailable)
-        return [
-            Block(
-                text=f"{channel_names} isn't currently available as inventory on this platform, so I can't plan the campaign on it. We hope to support it in the future. Would you like to use an available inventory instead?",
-                interaction=Interaction.SELECT_ONE,
-                layout=Layout.CHIPS,
-                field="inventory_alternatives",
-                primary=True,
-                data={
-                    "options": [
-                        {"value": "show_alternatives", "label": "Show available inventory"},
-                        {"value": "keep_requested", "label": "No, I'll plan this later"},
-                    ]
-                },
-            )
-        ]
+    Asks for everything outstanding at once rather than one field per turn.
+    Drip-feeding would be four round trips to start a plan - the wizard
+    experience the agent exists to replace.
+    """
+    blocks = [
+        block
+        for field in _ASK_ORDER
+        if not _is_answered(field, state)
+        if (block := _ask_for(field, state)) is not None
+    ]
 
-    rejected = [f for f in _ASK_ORDER if f in (state.get("rejected_fields") or [])]
-    if rejected:
-        for field in rejected:
-            block = _ask_for(field, state)
-            if block is not None:
-                block.primary = True
-                return [block]
+    # The first thing asked is the one to put front and centre, so an interface
+    # has an obvious focal point rather than three equal inputs.
+    if blocks:
+        blocks[0].primary = True
 
-    # Ask for one missing field at a time in the natural conversational order
-    for field in _ASK_ORDER:
-        if not state.get(field):
-            block = _ask_for(field, state)
-            if block is not None:
-                block.primary = True
-                return [block]
-
-    return []
+    return blocks
 
 
 # --- the plan ----------------------------------------------------------------
@@ -352,35 +312,25 @@ def inventory_block(state: dict) -> Block | None:
         if part
     )
 
-    brand = state.get("brand")
-    brand_prefix = f" for {brand}" if brand else ""
     if preferred:
-        text = f"You've selected {', '.join(preferred)}. Here are the available CTV deals in {market}:"
+        text = (
+            f"Got it - {recap}. You've chosen {', '.join(preferred)}; here are the "
+            f"deals available. Say if you'd like to change that."
+        )
     else:
-        text = f"Got it. Here is the available CTV inventory in {market}{brand_prefix}. Which one would you like to select?"
-    options = [
-        {
-            "value": deal["provider"],
-            "label": f"{deal['provider']}{' (' + deal['genre'] + ')' if deal.get('genre') else ''}",
-            "description": f"Indicative CPM: £{deal['cpm']} · {', '.join(f'{d}s' for d in deal.get('ad_lengths', []))} · {tiers.get(deal['inventory_tier'], {}).get('label', deal['inventory_tier'])}",
-            "badge": "Amazon-owned" if deal.get("inventory_tier") == AMAZON_OWNED else ("Pre-curated" if deal.get("inventory_tier") == "THIRD_PARTY_PRECURATED" else "Rate Card"),
-            "recommended": _preselect(deal, preferred),
-        }
-        for deal in deals
-    ]
+        text = f"Got it - {recap}. Here's the CTV inventory available in {market}."
 
     return Block(
         text=text,
-        interaction=Interaction.CONFIRM if preferred else Interaction.SELECT_ONE,
-        layout=Layout.CARDS if not preferred else Layout.TABLE,
-        field="preferred_providers",
+        interaction=Interaction.CONFIRM if preferred else Interaction.SELECT_MANY,
+        layout=Layout.TABLE,
+        field="selected_deals",
         data={
             # What was chosen, and what else exists. Both empty when nothing was
             # specified, which is how a client tells the two shapes apart.
             "confirming": preferred,
             "alternatives": alternatives,
             "columns": ["Provider", "Genre", "CPM", "Lengths", "Tier"],
-            "options": options,
             "rows": [
                 {
                     "value": deal["deal_id"],
@@ -394,38 +344,12 @@ def inventory_block(state: dict) -> Block | None:
                     # Carried per row so the interface can warn on the row
                     # itself rather than in a footnote nobody reads.
                     "note": tiers.get(deal["inventory_tier"], {}).get("note", ""),
-                    "selected": _preselect(deal, preferred),
+                    "selected": True,
                 }
                 for deal in deals
             ],
         },
     )
-
-
-def _preselect(deal: dict, preferred: list[str]) -> bool:
-    """Should this row arrive already ticked?
-
-    **Every row used to arrive ticked, and one of them silently costs the forecast.** The rows
-    are the checkboxes that write `selected_deals`, and `select_inventory.dominant_tier` takes
-    the most conservative tier across whatever ends up there. So a trader who left Disney+
-    ticked - a deal that does not exist yet, rate card only - and pressed continue would push
-    the plan's tier to `THIRD_PARTY_NEEDS_CURATION` and turn the reach forecast off. A default
-    nobody chose, changing what the plan can promise.
-
-    Two shapes, matching the two the block itself has:
-
-      they named providers   the rows are already filtered to their choice, so every row IS
-                             the answer - ticking them is reading their words back
-      they named nothing     tick only what can be acted on today. `AMAZON_OWNED` is the one
-                             tier with a real deal AND a reach forecast; the others stay
-                             visible and unticked, with their `note` saying why
-
-    Not hiding anything and not choosing for anyone: an unticked row is still on screen, still
-    selectable, and still carries "No reach forecast" or "Rate card only" next to it.
-    """
-    if preferred:
-        return True
-    return deal.get("inventory_tier") == AMAZON_OWNED
 
 
 def audience_block(state: dict) -> Block | None:
@@ -441,7 +365,7 @@ def audience_block(state: dict) -> Block | None:
     chosen = (state.get("chosen_audience") or {}).get("profile")
 
     return Block(
-        text="Here are three audience options. Pick one to forecast reach against:",
+        text="Three audience options - pick one and I'll forecast against it.",
         interaction=Interaction.SELECT_ONE,
         layout=Layout.CARDS,
         primary=True,
@@ -451,14 +375,15 @@ def audience_block(state: dict) -> Block | None:
             "options": [
                 {
                     "value": option["profile"],
-                    "label": f"{option['profile'].title()} ({option['name']})",
+                    "label": option["profile"].title(),
                     "sublabel": option["name"],
                     "metrics": {
                         "Segments": option["segment_count"],
-                        "Audience": f"~{option['estimated_size']:,}",
-                        "Effective CPM": f"£{option.get('effective_cpm')}" if option.get("effective_cpm") else None,
+                        "People": option["estimated_size"],
+                        # The number traders miss: the audience fee stacks on
+                        # the deal CPM, so narrow is smaller AND dearer.
+                        "Effective CPM": option.get("effective_cpm"),
                     },
-                    "badge": "Recommended" if option["profile"] == "BALANCED" else None,
                     "recommended": option["profile"] == "BALANCED",
                 }
                 for option in options
@@ -509,58 +434,36 @@ def forecast_block(state: dict) -> Block | None:
     )
 
 
-def plan_ready_block(state: dict) -> Block | None:
-    """Strategy review and approval block when M1 plan is complete."""
-    if state.get("strategy_created") or state.get("plan_approved"):
-        return None
-
-    return Block(
-        text="Your CTV Strategy Plan is ready for review. Would you like to approve and create this strategy?",
-        interaction=Interaction.SELECT_ONE,
-        layout=Layout.CARDS,
-        primary=True,
-        field="plan_approved",
-        data={
-            "options": [
-                {
-                    "value": "approve",
-                    "label": "Approve Strategy Plan",
-                    "badge": "Ready",
-                    "description": "Approve this plan and create the campaign strategy.",
-                    "recommended": True,
-                },
-                {
-                    "value": "modify",
-                    "label": "Modify Strategy",
-                    "description": "Adjust budget, dates, inventory, or targeting before creating.",
-                },
-            ]
-        },
-    )
-
-
 # --- the whole reply ---------------------------------------------------------
 
 
-# Which builder speaks for each stage. The graph runs one stage per turn, so
-# exactly one of these produces the reply.
-_STAGE_BLOCK = {
-    "inventory": inventory_block,
-    "audiences": audience_block,
-    "forecast": forecast_block,
-    "plan_ready": plan_ready_block,
+# Which builders speak for the stage the turn ended on. A gate can stop the graph
+# at any one of these, and `deliver_plan` reaches `delivered` having run all of
+# them - so a stage maps to a *list*, not a single builder.
+#
+# `validation` is absent deliberately: a turn that stops there has a blocking
+# grounding failure and nothing new to render, so the explanation stays in the
+# text channel rather than being dressed up as a plan.
+_STAGE_BLOCKS = {
+    "inventory": (inventory_block,),
+    "audiences": (audience_block,),
+    "forecast": (forecast_block,),
+    # The structured mirror of what `deliver_plan` consolidates in prose. The
+    # graph runs the whole gated chain in one turn once the basics are complete,
+    # so by `delivered` all three have something to say - and a client that got
+    # only the forecast would be rendering the answer without the plan.
+    "delivered": (inventory_block, audience_block, forecast_block),
 }
 
 
 def build_blocks(state: dict) -> list[Block]:
-    """What is NEW this turn - not the whole plan.
+    """What this turn has to show - not the running plan in full.
 
-    A chat message should carry what changed. Repeating the deals table under
-    every later message is the same wall of text arriving two turns late.
-
-    The full picture belongs in a panel that is always visible and fetches its
-    own data, so nothing is lost by leaving it out here: the trader sees the
-    running plan there rather than in scrollback.
+    A chat message should carry what the turn produced. Repeating the deals table
+    under every later message is the same wall of text arriving two turns late,
+    which is why nothing here reaches back for state an earlier turn already
+    rendered: the always-visible panel fetches its own data and is where the
+    trader watches the plan accumulate.
 
     Two exceptions to "one block":
 
@@ -568,18 +471,14 @@ def build_blocks(state: dict) -> list[Block]:
         asking for four things over four turns is the wizard the agent replaces.
       * The summary appears only while probing, where there is no panel yet and
         the trader needs to see what was understood alongside what is missing.
+
+    A builder returning None is dropped rather than emitted empty - `blocks` is
+    "what is renderable", so an absent forecast must be an absent block and not a
+    block claiming an absent forecast.
     """
-    if state.get("unavailable_requested_channels"):
-        return input_blocks(state)
-
-    stage = state.get("current_stage")
-    if stage and stage in _STAGE_BLOCK:
-        block = _STAGE_BLOCK[stage](state)
-        if block is not None:
-            return [block]
-
     asks = input_blocks(state)
     if asks:
-        return asks
+        return [summary_block(state), *asks]
 
-    return []
+    builders = _STAGE_BLOCKS.get(state.get("current_stage") or "", ())
+    return [block for builder in builders if (block := builder(state)) is not None]

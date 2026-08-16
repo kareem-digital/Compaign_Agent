@@ -78,20 +78,17 @@ class AdvertiserContextMissingError(VowAgentError):
 class RegistrySyncError(VowAgentError):
     """The grounded registry could not be built from VOW's reference data.
 
-    Raised at ingest time, and only when the snapshot would be unusable. A missing optional
-    source degrades instead - see the partial-failure policy in
+    Raised at ingest time, and only when the snapshot would be unusable. A
+    missing optional source degrades instead - see the partial-failure policy in
     `app/knowledge/registry/ingestion.py`.
-
-    Taken verbatim from the KNW-02 lane (`feat/KNW-02-registry-ingestion`) so the two lanes
-    raise the same class rather than two that merely look alike.
     """
 
 
 class RegistryValidationError(RegistrySyncError):
     """Incoming reference data failed the checks that gate a registry update.
 
-    Carries every violation rather than the first, because a reviewer needs the whole picture
-    to decide whether the server's shape changed or one row is bad.
+    Carries every violation rather than the first, because a reviewer needs the
+    whole picture to decide whether the server's shape changed or one row is bad.
     """
 
     def __init__(self, message: str, violations: list[str] | None = None):
@@ -100,4 +97,11 @@ class RegistryValidationError(RegistrySyncError):
 
 
 class GroundingError(VowAgentError):
-    """An identifier could not be validated against the grounded registry."""
+    """An identifier could not be validated against the grounded registry.
+
+    The *hard* half of validation. The soft half is `ValidationResponse`, which
+    the agent turns into a question for the trader ("not that - try one of
+    these"). This is for code paths where proceeding is unacceptable: anywhere a
+    deal ID or audience set ID is about to be sent to VOW. Raised from exactly
+    one place, `registry.validate.assert_grounded`.
+    """

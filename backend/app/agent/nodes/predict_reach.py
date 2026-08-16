@@ -12,6 +12,13 @@ Two rules that follow, both from `VOW_Strategy_Schema_v2.md` section 3 step 6:
   * **Never sum reach across providers.** There is no cross-platform
     deduplication, so the numbers are not additive.
 
+**It computes; `deliver_plan` states.** This node used to phrase the forecast
+itself, and now that `deliver_plan` runs immediately after and presents the whole
+plan, doing both put the same figures in one reply twice. The honesty rule moved
+with the prose - see `deliver_plan._forecast_lines`, which is now the only place a
+forecast is spoken. What stays here is anything this stage *records*, because no
+later stage carries a warning.
+
 The repair loop (too narrow -> widen -> re-forecast) attaches here and applies
 to the Amazon portion only. Not built yet; the seam is marked below.
 """
@@ -20,9 +27,12 @@ from __future__ import annotations
 
 import logging
 
+from app.agent.gates import record, record_checks, say, stage_notes
 from app.agent.nodes.select_inventory import AMAZON_OWNED
 from app.agent.state import PlanningAgentState
 from app.core.logging import kv
+from app.knowledge.registry.models import ValidationResponse
+from app.knowledge.registry.validate import check_forecast_shape
 from app.tools.mcp import MCPClient, VowTools
 
 logger = logging.getLogger(__name__)
@@ -42,35 +52,6 @@ def _total_budget(state: PlanningAgentState) -> float:
     )
 
 
-def _summary(forecast: dict, budget: float, currency: str) -> str:
-    if not forecast.get("is_available"):
-        return "\n".join(
-            [
-                "I cannot forecast reach for this plan.",
-                "",
-                f"{forecast.get('reason', 'Reach data is unavailable for this inventory.')}",
-                "",
-                f"What I can tell you: at {forecast.get('indicative_cpm')} CPM, "
-                f"{budget:,.0f} {currency} buys roughly "
-                f"{forecast.get('estimated_impressions', 0):,} impressions.",
-                "",
-                "That is impressions, not unique people - I have no way to tell you how "
-                "many individuals that reaches, and I will not estimate it.",
-            ]
-        )
-
-    return "\n".join(
-        [
-            "Forecast for the Amazon portion:",
-            "",
-            f"- Impressions: {forecast['estimated_impressions']:,}",
-            f"- Unique reach: {forecast['estimated_unique_reach']:,} people",
-            f"- Average frequency: {forecast['average_frequency']}",
-            f"- Indicative CPM: {forecast['indicative_cpm']}",
-        ]
-    )
-
-
 def make_predict_reach(mcp: MCPClient):
     """Build the node with its MCP client bound."""
 
@@ -78,19 +59,21 @@ def make_predict_reach(mcp: MCPClient):
         tier = state.get("inventory_tier")
         chosen = state.get("chosen_audience") or {}
         budget = _total_budget(state)
-        currency = state.get("primary_currency", "GBP")
 
         if not tier or not budget:
             missing = "inventory" if not tier else "budget"
+            # `asking`: this is the turn's only message, and `deliver_plan` stays
+            # quiet with no forecast to summarise, so suppressing a repeat here
+            # would end the turn in silence.
             return {
                 "current_stage": STAGE,
                 "forecast": None,
-                "messages": [
-                    {
-                        "role": "assistant",
-                        "content": f"I need {missing} settled before I can forecast.",
-                    }
-                ],
+                **say(
+                    state,
+                    STAGE,
+                    f"I need {missing} settled before I can forecast.",
+                    asking=True,
+                ),
             }
 
         effective_cpm = chosen.get("effective_cpm") or chosen.get("cpm_basis")
@@ -111,7 +94,30 @@ def make_predict_reach(mcp: MCPClient):
             },
         )
 
-        errors = list(state.get("validation_errors") or [])
+        checks = []
+
+        # A forecast that says reach is unavailable and then supplies one is the
+        # fabricated-reach failure mode this node exists to prevent. `_summary`
+        # would not speak the number, but a silently contradictory payload means
+        # the server's contract has moved, and that has to be visible.
+        #
+        # Recorded as a warning even though the check calls it an error: it is a
+        # problem with VOW's payload, so stopping to ask the trader would demand a
+        # fix only VOW can make - and a blocking entry would still be in state next
+        # turn, diverting a turn that has nothing wrong with it.
+        #
+        # Recorded either way, which it was not before: on the third-party path the
+        # pass is `forecast.unavailable_ok`, carrying `reach_available: False`, and
+        # that is the best evidence there is for "why can you not forecast reach?".
+        # It used to be computed and dropped. `record` still drops it - a pass is
+        # not spoken - so `record_checks` is the only thing that changes.
+        shape = check_forecast_shape(forecast)
+        if shape.blocks:
+            logger.error("forecast.contract_violation", extra=kv(code=shape.code))
+            checks.append(shape.model_copy(update={"severity": "warning"}))
+        else:
+            checks.append(shape)
+
         reach = forecast.get("estimated_unique_reach")
 
         # Repair-loop seam: when reach is available but too small, the graph
@@ -124,33 +130,39 @@ def make_predict_reach(mcp: MCPClient):
             and reach < MIN_VIABLE_REACH
         )
         if needs_repair:
-            logger.warning(
-                "forecast.below_viability_floor",
-                extra=kv(reach=reach, floor=MIN_VIABLE_REACH, tier=tier),
-            )
-            errors.append(
-                f"forecast reach {reach:,} is below the {MIN_VIABLE_REACH:,} viability floor "
-                "- widen the audience and re-forecast"
+            # A warning, not a blocker: the fix is to widen the audience and
+            # re-forecast, and that edge does not exist yet. Blocking would ask a
+            # question the graph cannot act on.
+            checks.append(
+                ValidationResponse(
+                    is_valid=True,
+                    severity="warning",
+                    code="forecast.below_viability_floor",
+                    field="forecast",
+                    message=(
+                        f"That reach is below the {MIN_VIABLE_REACH:,} I would want to see "
+                        f"before committing - a wider audience would deliver more reliably."
+                    ),
+                    metadata={"reach": reach, "floor": MIN_VIABLE_REACH},
+                )
             )
 
-        logger.info(
-            "stage.forecast",
-            extra=kv(
-                tier=tier,
-                available=forecast.get("is_available"),
-                reach=reach,
-                impressions=forecast.get("estimated_impressions"),
-                needs_repair=needs_repair,
-            ),
-        )
-        logger.debug("stage.forecast.result", extra=kv(forecast=forecast))
+        errors = record(state, STAGE, checks)
 
+        # The numbers are not stated here. `deliver_plan` runs immediately after and
+        # presents them inside the whole plan, so speaking them twice in one reply
+        # is just noise - the forecast is the last thing *computed*, not the last
+        # thing said. What this stage still owns is anything it recorded, because
+        # nothing downstream carries a warning.
         return {
             "current_stage": STAGE,
             "stage_cursor": "forecast",
             "forecast": forecast,
             "validation_errors": errors,
-            "messages": [{"role": "assistant", "content": _summary(forecast, budget, currency)}],
+            # As in `suggest_audiences`: the UI's only source, and the honesty
+            # rule's own evidence has to reach it.
+            "validation_checks": record_checks(state, STAGE, checks),
+            **say(state, STAGE, stage_notes(STAGE, errors)),
         }
 
     return predict_reach

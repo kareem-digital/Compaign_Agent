@@ -1,8 +1,4 @@
-import logging
-
 from app.config import get_settings
-
-logger = logging.getLogger(__name__)
 
 
 async def create_checkpointer():
@@ -11,10 +7,8 @@ async def create_checkpointer():
     if settings.use_memory_checkpointer:
         from langgraph.checkpoint.memory import MemorySaver
 
-        logger.info(
-            "Using in-memory checkpointer - state will be lost on restart. "
-            "Set USE_MEMORY_CHECKPOINTER=false for persistence."
-        )
+        # In-memory: state is lost on restart. Set USE_MEMORY_CHECKPOINTER=false
+        # for persistence.
         return MemorySaver()
     else:
         try:
@@ -31,5 +25,4 @@ async def create_checkpointer():
 
         checkpointer = AsyncPostgresSaver.from_conn_string(conn_string)
         await checkpointer.setup()
-        logger.info("Using Postgres checkpointer - state persists across restarts.")
         return checkpointer

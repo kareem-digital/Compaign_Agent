@@ -9,22 +9,40 @@ VCPM fee. A narrow audience is both smaller and dearer per impression, so
 showing the deal price alone understates what precision costs. Surfacing the
 combined figure per option is the whole point of this node.
 
+That arithmetic lives in the registry, not here. It is the figure a trader
+commits budget against, so it has one implementation, in `Decimal` rather than
+float - `18.22 + 3.50` in binary float is not `21.72`. This node asks for the
+priced options and decides how to say them.
+
 Amazon audiences apply only to Amazon-owned inventory; for third-party the
 provider's own targeting applies and adds its own CPM. That is stated rather
-than silently ignored.
+than silently ignored - and an unpriced option comes back as `None`, never
+zero, because a zero would read as free.
+
+**The trader picks; this node does not.** It used to set `chosen_audience` to
+BALANCED itself, which made "pick one and I will forecast against it" a promise
+nothing could keep: naming a profile changed nothing, and the plan ran through to
+a forecast against an audience nobody had agreed to. Now the choice is a real
+input - `extract_fields` reads it into `audience_choice` and this node prices it -
+and its absence is the flow's one genuine wait-for-the-human step.
+
+BALANCED is still the recommendation, but it is recommended in the prose rather
+than assumed in the state. A default nobody was asked about is not a choice.
 """
 
 from __future__ import annotations
 
-import logging
-
-from app.agent.gates import NO_AUDIENCE
+from app.agent.gates import (
+    NO_AUDIENCE,
+    NO_AUDIENCE_CHOICE,
+    record,
+    record_checks,
+    say,
+    stage_notes,
+)
 from app.agent.nodes.select_inventory import AMAZON_OWNED
 from app.agent.state import PlanningAgentState
-from app.core.logging import kv
-from app.tools.mcp import MCPClient, VowTools
-
-logger = logging.getLogger(__name__)
+from app.knowledge.registry import AdvertiserRegistry, ValidationResponse
 
 STAGE = "audiences"
 
@@ -36,24 +54,18 @@ _PROFILE_NOTE = {
     "WIDE": "widest reach, lowest fee, least precision",
 }
 
-
-def _cheapest_amazon_cpm(deals: list[dict]) -> float | None:
-    """Base CPM the audience fee stacks onto.
-
-    Cheapest Amazon deal rather than an average: the fee applies per
-    impression, and the trader will optimise toward the cheapest qualifying
-    inventory, so that is the honest anchor.
-    """
-    amazon_cpms = [
-        float(deal["cpm"])
-        for deal in deals
-        if deal.get("inventory_tier") == AMAZON_OWNED and deal.get("cpm")
-    ]
-    return min(amazon_cpms) if amazon_cpms else None
+# Said instead of the full options block when the choice is still outstanding and
+# the trader's last message was about something else. The options are still on
+# screen a message or two up; restating them is what made this conversation loop.
+_RE_ASK = "Still need an audience before I can forecast - Narrow, Balanced or Wide?"
 
 
 def _summary(options: list[dict], has_amazon: bool, has_third_party: bool) -> str:
-    lines = ["Three audience options - pick one and I will forecast against it.", ""]
+    lines = [
+        "Three audience options - tell me which to use and I will forecast against it. "
+        "Balanced is the usual recommendation.",
+        "",
+    ]
 
     for option in options:
         effective = option.get("effective_cpm")
@@ -85,89 +97,97 @@ def _summary(options: list[dict], has_amazon: bool, has_third_party: bool) -> st
     return "\n".join(lines).rstrip()
 
 
-def make_suggest_audiences(mcp: MCPClient):
-    """Build the node with its MCP client bound."""
+def make_suggest_audiences(registry: AdvertiserRegistry):
+    """Build the node with its registry bound."""
 
     async def suggest_audiences(state: PlanningAgentState) -> dict:
         deals = state.get("selected_deals") or []
         markets = state.get("markets") or []
+        market = markets[0] if markets else None
 
-        response = await mcp.call_tool(
-            VowTools.SUGGEST_AUDIENCES,
-            {
-                "market": markets[0] if markets else None,
-                "goal": state.get("goal", "AWARENESS"),
-                "brief": state.get("strategy_name"),
-            },
+        # The registry prices all three profiles against the selected inventory,
+        # in Decimal, and returns strings. That is the same calculation this node
+        # used to do in float - moved rather than copied, because effective CPM
+        # is the number a trader commits budget against and it should have one
+        # implementation. See `registry.calculate_effective_cpm`.
+        validator = await registry.validator(market)
+        options = (
+            validator.effective_cpm_options(market, [d["deal_id"] for d in deals]) if market else []
         )
 
-        base_cpm = _cheapest_amazon_cpm(deals)
-        suggestions = {s["profile"]: s for s in response.get("suggestions", [])}
+        found = {option["profile"] for option in options}
+        missing = [p for p in _PROFILE_ORDER if p not in found]
 
-        options = []
-        for profile in _PROFILE_ORDER:
-            suggestion = suggestions.get(profile)
-            if not suggestion:
-                continue
-
-            fee = float(suggestion["vcpm_fee"])
-            option = {
-                "audience_set_id": suggestion["audience_set_id"],
-                "name": suggestion["name"],
-                "profile": profile,
-                "vcpm_fee": suggestion["vcpm_fee"],
-                "segment_count": suggestion["segment_count"],
-                "estimated_size": suggestion["estimated_size"],
-                "cpm_basis": f"{base_cpm:.2f}" if base_cpm else None,
-                "effective_cpm": f"{base_cpm + fee:.2f}" if base_cpm else None,
-            }
-            options.append(option)
-
-        missing = [p for p in _PROFILE_ORDER if p not in suggestions]
-        errors = list(state.get("validation_errors") or [])
+        # Three options are mandatory; fewer is a server-contract problem, so this
+        # points at VOW rather than at the plan. Recorded as a *warning* rather
+        # than a blocker on purpose: blocking would stop the turn and ask the
+        # trader to fix something only VOW can. So it is said, and the flow goes on
+        # with whatever profiles did arrive.
+        checks = []
         if missing:
-            # Three options are mandatory; fewer is a server-contract problem,
-            # so this points at VOW rather than at the plan.
-            logger.warning(
-                "audiences.incomplete_profiles",
-                extra=kv(missing=missing, returned=sorted(suggestions)),
+            checks.append(
+                ValidationResponse(
+                    is_valid=True,
+                    severity="warning",
+                    code="audience.incomplete_profiles",
+                    field="audience_options",
+                    message=(
+                        f"VOW suggested no {', '.join(p.lower() for p in missing)} audience for "
+                        f"this brief, so I can only price the ones it returned."
+                    ),
+                    metadata={"missing": missing, "returned": sorted(found)},
+                )
             )
-            errors.append(f"audience suggestion returned no {', '.join(missing)} profile")
+        # The trader's pick, grounded against what VOW actually returned. An
+        # unrecognised profile becomes a blocker carrying the three real options,
+        # so `ask` phrases it with no audience-specific code - see
+        # `validate_audience_choice`.
+        choice = state.get("audience_choice")
+        chosen = next((o for o in options if o["profile"] == choice), None) if choice else None
+
+        if choice and options:
+            # Grounded whether or not it matched, which the earlier version skipped.
+            # A match returns `audience.ok`, which `record` drops - so the
+            # conversation is byte-identical - while `record_checks` keeps it, and
+            # the panel can show the pick was checked against what VOW returned
+            # rather than leaving an agreed audience with no evidence behind it.
+            checks.append(validator.validate_audience_choice(choice))
+
+        errors = record(state, STAGE, checks)
 
         tiers = {deal.get("inventory_tier") for deal in deals}
-        logger.info(
-            "stage.audiences",
-            extra=kv(
-                options=len(options),
-                base_cpm=base_cpm,
-                priced=bool(base_cpm),
-                chosen="BALANCED" if options else None,
-            ),
+        summary = _summary(
+            options,
+            has_amazon=AMAZON_OWNED in tiers,
+            has_third_party=bool(tiers - {AMAZON_OWNED}),
         )
-        logger.debug("stage.audiences.options", extra=kv(options=options))
+        spoken = stage_notes(STAGE, errors)
+        message = f"{summary}\n\n{spoken}" if spoken else summary
+
+        if not options:
+            awaiting = [NO_AUDIENCE]
+        elif chosen is None:
+            awaiting = [NO_AUDIENCE_CHOICE]
+        else:
+            awaiting = []
 
         return {
             "current_stage": STAGE,
             "stage_cursor": "audiences",
             "audience_options": options,
-            # No audience means nothing to forecast against.
-            "awaiting": [] if options else [NO_AUDIENCE],
-            # Balanced is the documented default recommendation. The trader
-            # confirms or changes it at approval; nothing is locked here.
-            "chosen_audience": next(
-                (o for o in options if o["profile"] == "BALANCED"), options[0] if options else None
-            ),
+            "awaiting": awaiting,
+            "chosen_audience": chosen,
             "validation_errors": errors,
-            "messages": [
-                {
-                    "role": "assistant",
-                    "content": _summary(
-                        options,
-                        has_amazon=AMAZON_OWNED in tiers,
-                        has_third_party=bool(tiers - {AMAZON_OWNED}),
-                    ),
-                }
-            ],
+            # The UI's only source, so a stage that skipped it would have its
+            # warnings spoken in the conversation and missing from the panel.
+            "validation_checks": record_checks(state, STAGE, checks),
+            # `asking` while the choice is outstanding: the summary above ends by
+            # asking for it and the router sends that straight to END, so falling
+            # silent would end the turn saying nothing. But a trader who replied
+            # about something else should not get twenty lines of options again,
+            # so the second time it is one line. Once a choice is in, the block is
+            # suppressed outright - it is the text that was repeating every turn.
+            **say(state, STAGE, message, asking=chosen is None, repeat_with=_RE_ASK),
         }
 
     return suggest_audiences

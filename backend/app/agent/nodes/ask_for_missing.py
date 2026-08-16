@@ -1,198 +1,142 @@
-"""The node that stops and asks in a natural, conversational way.
+"""The node that stops and asks - one thing at a time.
 
-Reached whenever a stage recorded something in `awaiting`. It uses Claude to
-generate a short, natural response that:
-  - Acknowledges what was already understood (never asks for it again)
-  - Asks only for the single most important missing thing
-  - Feels like a human campaign-planning assistant, not a form
+Reached whenever a stage recorded something in `awaiting` or a validation
+blocker. It asks about exactly one of them and ends the turn; the graph does not
+continue until the trader replies.
 
-If Claude is unavailable, falls back to a concise template.
+**One question per turn.** This used to ask for everything outstanding at once,
+on the reasoning that drip-feeding would be four round trips to start a plan -
+the wizard experience the agent exists to replace. That was reversed
+deliberately: a batched question reads as a form, and the round-trip cost is only
+paid by a trader who volunteers nothing, because a full brief still answers every
+item in one message and asks nothing. `gates.next_question` picks the item; this
+node only phrases it.
 
-M1 Planning Rules (from M1_planning.txt):
-- Step 8: Ask for NEXT meaningful decision only, not a questionnaire
-- Step 16: Responses must feel real-time and human
-- Step 5: Deeply analyse what the user said - confirm what was understood
-- Never re-ask information already provided
+**Never something already answered.** Both `awaiting` and the blocker list are
+derived from current state every turn, so an answer given out of order removes an
+item rather than being asked for again. That property lives in
+`gates.missing_basics` and `gates.record`, not here.
+
+**Conflicts before gaps**, because an invalid value keeps blocking whatever else
+is collected. See `gates.next_question`.
+
+No recap of what is already known: `extract_fields._confirmation` prints that
+whenever the turn moved something, and saying it twice in one reply reads as the
+agent having lost its place.
+
+Either way the *content* is computed, never generated - a model rewords a known
+question, it does not decide what is missing or what the alternatives are.
+
+**Who does the wording depends on the voice layer.** When `agent.voice` is active
+it re-voices the whole turn at the API boundary, so this node emits its template
+and lets that single pass phrase it: the question is one block among several, and
+a question phrased here would then be paraphrased again, which is both a wasted
+call and a game of telephone. With the voice layer off - no key, or disabled -
+this node phrases its own question as it always did, because then nothing else
+will.
 """
 
 from __future__ import annotations
 
 import logging
-import time
 
-from app.agent.gates import BASICS, NO_AUDIENCE, NO_INVENTORY
-from app.agent.llm import get_llm, log_usage
+from app.agent.gates import next_question
+from app.agent.llm import get_llm
+from app.agent.prompts import ASK_CONFLICT, ASK_MISSING
 from app.agent.state import PlanningAgentState
+from app.config import get_settings
 from app.core.logging import kv
 
 logger = logging.getLogger(__name__)
 
-_FIXED_LABELS = frozenset({label for _key, label in BASICS} | {NO_INVENTORY, NO_AUDIENCE})
+
+def _missing_template(label: str) -> str:
+    """Deterministic phrasing for a gap, used when no LLM is configured."""
+    return f"Before I can carry on I need {label}. Could you tell me?"
 
 
-def _joined(items: list[str]) -> str:
-    """"a and b" / "a, b and c" - the list as a person would say it."""
-    if len(items) == 1:
-        return items[0]
-    return f"{', '.join(items[:-1])} and {items[-1]}"
+def _conflict_template(entry: dict) -> str:
+    """Deterministic phrasing for an unsupported value.
 
+    Renders `message` and `suggested_options` and nothing else - no branch on
+    which field failed, which is what lets a validation rule added tomorrow reach
+    the trader without a change in this file.
 
-def _known_summary(state: PlanningAgentState) -> str:
-    """Build a short human-readable summary of what we already know."""
-    parts = []
-    if state.get("brand"):
-        parts.append(f"Brand: {state['brand']}")
-    elif state.get("product_context"):
-        parts.append(f"Product/campaign: {state['product_context']}")
-    markets = state.get("markets") or []
-    if markets:
-        market_labels = {"GB": "UK", "US": "USA", "FR": "France", "DE": "Germany"}
-        parts.append(f"Market: {', '.join(market_labels.get(m, m) for m in markets)}")
-    if state.get("flight_dates"):
-        fd = state["flight_dates"]
-        parts.append(f"Flight: {fd.get('lower', '?')} to {fd.get('upper', '?')}")
-    durations = state.get("durations") or []
-    if durations:
-        parts.append(f"Creative: {', '.join(durations)}s")
-    budgets = state.get("market_budgets") or []
-    if budgets:
-        b = budgets[0]
-        currency = state.get("primary_currency", "GBP")
-        parts.append(f"Budget: {b.get('budget', '?')} {currency}")
-    preferred = state.get("preferred_providers") or []
-    if preferred:
-        parts.append(f"Inventory: {', '.join(preferred)}")
-    return "\n".join(f"- {p}" for p in parts) if parts else "Nothing known yet."
+    `message` already names the offending value: the registry's validators are
+    written for exactly this moment ("I cannot plan for XX - VOW does not sell
+    CTV inventory there"), so a separate "you asked for" line would only repeat
+    it. `field`, `code` and `metadata` ride along in state for the UI.
+    """
+    lines = [entry.get("message") or "One of the values you gave is not supported."]
+    options = _options(entry)
 
-
-def _fallback_question(missing: list[str], state: PlanningAgentState) -> str:
-    """Simple template used when Claude is unavailable."""
-    stated_parts = [item for item in missing if item not in _FIXED_LABELS]
-    gap_parts = [item for item in missing if item in _FIXED_LABELS]
-
-    # If it's a rejection/conflict message (TC-014 etc), surface it directly
-    if stated_parts:
-        return stated_parts[0]
-
-    # For missing basics, ask for the most critical one
-    if gap_parts:
-        if len(gap_parts) == 1:
-            return f"I just need {gap_parts[0]}. Could you let me know?"
-        if len(gap_parts) == 2:
-            return f"I still need {_joined(gap_parts)}. Could you send those over?"
-        lines = ["I need a few more details to continue:", ""]
-        lines += [f"- {g}" for g in gap_parts]
-        lines += ["", "Send them over and I'll put the plan together."]
-        return "\n".join(lines)
-
-    return "What would you like instead?"
-
-
-def _build_system_prompt() -> str:
-    return """You are a smart, friendly CTV campaign-planning assistant for the VOW platform.
-Your job is to help traders build a campaign strategy through natural conversation.
-
-STYLE RULES:
-- Be concise and conversational — 1-3 sentences maximum
-- Sound like a helpful human, not a system or form
-- Acknowledge what you understood before asking what's missing or explaining an issue
-- Ask for ONE thing at a time (the most important missing piece)
-- Never list all missing fields as bullet points
-- Never say "Before I can carry on I need:" — this sounds robotic
-- Use contractions: "I've got" not "I have got", "don't" not "do not"
-- Keep it warm, direct, and professional
-
-VALIDATION & ANTI-HALLUCINATION RULES:
-- If flight dates are in the past: State clearly: "Those dates have already passed. Campaign flight dates must be upcoming. Please select a future start and end date." NEVER suggest reviewing past campaigns or historical reports.
-- If creative duration is unsupported (e.g. 45s, 60s): State clearly: "We don't offer [X]-second spots on CTV. We support 10s, 15s, 20s, or 30s instead. Which duration works best for you?"
-- If requested inventory is not carried (e.g. Zee TV, Sony Liv): State clearly that it is not available on the platform and offer to show available inventory.
-- Never invent platform features or campaign data.
-
-EXAMPLES OF GOOD RESPONSES:
-- "Got it — running shoes in the UK. When are you planning to run the campaign?"
-- "Those dates have already passed. Campaign flight dates must be upcoming. When would you like the campaign to run?"
-- "We don't offer 45-second spots on CTV. We support 10s, 15s, 20s, or 30s instead. Which duration works best for you?"
-- "Great. I've got most of the details. What creative duration works best — 15s or 30s?"
-- "I've got the brief. What's your budget for the campaign?"
-
-EXAMPLES OF BAD RESPONSES (never do these):
-- "or were you looking to review a past campaign?" (NEVER say this)
-- "Before I can carry on I need: - the start and end dates - the budget - the creative duration"
-- "Please provide the following information: market, dates, budget"
-"""
-
-
-async def _llm_ask(llm, state: PlanningAgentState, missing: list[str]) -> str:
-    """Use Claude to generate a natural, context-aware response."""
-    known = _known_summary(state)
-    stated = [m for m in missing if m not in _FIXED_LABELS]
-    gaps = [m for m in missing if m in _FIXED_LABELS]
-
-    # Build a clear context for Claude
-    context_parts = [f"What I already know about this campaign:\n{known}"]
-
-    if stated:
-        # These are blocking messages (channel conflicts, validation errors)
-        context_parts.append(f"Blocking issue to communicate:\n{stated[0]}")
-        context_parts.append("Generate a short, friendly message explaining this issue and asking what the trader wants to do.")
-    elif gaps:
-        priority_gap = gaps[0]  # First = most important (ordering from gates.BASICS)
-        context_parts.append(f"What's still missing (ask for the most important one):\n- {priority_gap}")
-        if len(gaps) > 1:
-            context_parts.append(f"Other things also missing (do NOT ask for these yet, just focus on the first one):\n{chr(10).join(f'- {g}' for g in gaps[1:])}")
-        context_parts.append(
-            "Generate ONE short, friendly question that:\n"
-            "1. Briefly acknowledges what you already know (if anything)\n"
-            "2. Asks ONLY for the single most important missing piece\n"
-            "3. Sounds like a real human assistant"
-        )
+    if options:
+        lines.append(f"Available options: {options}")
+        lines.append("Which would you like to use?")
     else:
-        context_parts.append("Ask what the trader would like to do next.")
+        # Nothing to offer, so do not imply there is - a validation failure with no
+        # alternatives ("that date has passed") needs a different closing question.
+        lines.append("What would you like to change it to?")
 
-    prompt = "\n\n".join(context_parts)
+    return "\n".join(lines)
 
-    started = time.monotonic()
-    response = await llm.ainvoke([
-        {"role": "system", "content": _build_system_prompt()},
-        {"role": "user", "content": prompt},
-    ])
-    log_usage("ask", response, round((time.monotonic() - started) * 1000))
 
-    return response.content.strip() if hasattr(response, "content") else str(response).strip()
+def _options(entry: dict) -> str:
+    return ", ".join(str(option) for option in entry.get("suggested_options") or [])
+
+
+def _prompt(question: dict) -> tuple[str, str, str]:
+    """(system prompt, user prompt, deterministic fallback) for one question."""
+    if question["kind"] == "conflict":
+        entry = question["entry"]
+        options = _options(entry)
+        # Bare sentences, no field labels. The model copies whatever scaffolding it
+        # is handed - a "Problem:" prefix came back at the trader verbatim - and
+        # the options line is omitted entirely rather than sent as "none".
+        user = entry.get("message") or "A value the trader gave is not supported."
+        if options:
+            user += f"\n\nThe options available are: {options}"
+        return ASK_CONFLICT, user, _conflict_template(entry)
+
+    label = question["label"]
+    return ASK_MISSING, f"The missing detail is: {label}", _missing_template(label)
 
 
 async def ask_for_missing(state: PlanningAgentState) -> dict:
-    """Ask for whatever the previous stage recorded as outstanding.
-    
-    Uses Claude to generate natural, context-aware conversational responses.
-    Falls back to a concise template if Claude is unavailable.
-    """
-    if state.get("current_stage") == "concluded" or state.get("stage_cursor") == "concluded":
+    """Ask about the single outstanding item this turn."""
+    question = next_question(state)
+    if question is None:
+        # Defensive: the router should never route here with nothing to ask.
         return {}
 
-    missing = state.get("awaiting") or []
-    if not missing:
-        return {}
-
-    llm = get_llm()
-    reply_text = None
-
-    if llm:
-        try:
-            reply_text = await _llm_ask(llm, state, missing)
-        except Exception:
-            logger.warning("llm.fallback", extra=kv(purpose="ask"), exc_info=True)
-
-    if not reply_text:
-        reply_text = _fallback_question(missing, state)
-
+    # What the agent is actually asking for, which is the narrower and more useful
+    # half of "what does it still need": `next_question` picks one item, conflicts
+    # before gaps, so this names the thing blocking progress right now rather than
+    # the whole outstanding list. Only fires on turns that ask.
     logger.info(
-        "gate.blocked",
+        "audit.question_asked",
         extra=kv(
-            awaiting=missing,
-            stated=len([m for m in missing if m not in _FIXED_LABELS]),
-            llm_used=bool(llm and reply_text),
+            kind=question["kind"],
+            asked=question.get("label") or question["entry"].get("code"),
+            outstanding=len(state.get("awaiting") or []),
         ),
     )
 
-    return {"messages": [{"role": "assistant", "content": reply_text}]}
+    system, user, fallback = _prompt(question)
+
+    # The template carries every fact the question needs, options line included, so
+    # handing it to the turn renderer loses nothing - see the module docstring.
+    llm = None if get_settings().voice_enabled else get_llm()
+    phrased = None
+
+    if llm:
+        try:
+            response = await llm.ainvoke(
+                [{"role": "system", "content": system}, {"role": "user", "content": user}]
+            )
+            phrased = (response.content or "").strip()
+        except Exception:
+            # A model outage must not break the flow - the template still works.
+            phrased = None
+
+    return {"messages": [{"role": "assistant", "content": phrased or fallback}]}

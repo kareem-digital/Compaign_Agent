@@ -8,10 +8,7 @@ real provider and change VOW_AUTH_METHOD in settings.
 See: Open Questions A1.
 """
 
-import logging
 from abc import ABC, abstractmethod
-
-logger = logging.getLogger(__name__)
 
 
 class VOWAuthProvider(ABC):
@@ -31,9 +28,7 @@ class StubAuth(VOWAuthProvider):
     """
 
     async def get_headers(self) -> dict[str, str]:
-        logger.warning(
-            "Using StubAuth — no real authentication. Fine for dev, not for staging/prod."
-        )
+        # No real authentication. Fine for dev, not for staging/prod.
         return {}
 
 

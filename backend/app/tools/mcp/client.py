@@ -42,7 +42,7 @@ from app.core.exceptions import (
 )
 from app.core.logging import kv
 from app.governance.agt import get_guard
-from app.tools.oauth import DelegatedMCPTokenProvider
+from app.tools.mcp.oauth import DelegatedMCPTokenProvider
 
 logger = logging.getLogger(__name__)
 
@@ -67,12 +67,10 @@ class MCPClient(ABC):
     def __init__(
         self,
         advertiser_id: str,
-        auth_token: str | None = None,
         settings: Settings | None = None,
     ):
         self.advertiser_id = advertiser_id
         self.settings = settings or get_settings()
-        self.auth_token = auth_token or self.settings.mcp_auth_token
 
     # --- what transports implement ---
 
@@ -188,12 +186,11 @@ class StreamableHTTPMCPClient(MCPClient):
         self,
         advertiser_id: str,
         *,
-        auth_token: str | None = None,
         settings: Settings | None = None,
         token_provider: DelegatedMCPTokenProvider | None = None,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
-        super().__init__(advertiser_id=advertiser_id, auth_token=auth_token, settings=settings)
+        super().__init__(advertiser_id=advertiser_id, settings=settings)
         self._token_provider = token_provider or DelegatedMCPTokenProvider(self.settings)
         self._http_client = http_client
 
@@ -324,4 +321,3 @@ def create_mcp_client(advertiser_id: str) -> MCPClient:
         settings=settings,
         token_provider=DelegatedMCPTokenProvider(settings),
     )
-

@@ -1,0 +1,124 @@
+{
+    "session_id": "8230152f-c8fe-4999-afad-b9377d819759",
+    "stage": "inventory",
+    "reply": "Saved — Creative length: 20 seconds.\n\nThat completes basic details. With all four stages settled the reach curve is generated: ~2.4M unique reach at 3.2× frequency. Send it to your manager when you're happy.",
+    "message": {
+        "id": "msg_472bfc56-f557-4f4e-a060-bb617cfd26ba",
+        "role": "assistant",
+        "content": [
+            {
+                "type": "text",
+                "text": "Saved — Creative length: 20 seconds.\n\nThat completes basic details. With all four stages settled the reach curve is generated: ~2.4M unique reach at 3.2× frequency. Send it to your manager when you're happy."
+            },
+            {
+                "type": "suggestions",
+                "id": "sug_after_creative",
+                "items": [
+                    {
+                        "id": "sug_postcodes",
+                        "label": "Widen the postcode list",
+                        "prompt": "Widen the postcode list and show me what it does to reach."
+                    },
+                    {
+                        "id": "sug_60k",
+                        "label": "Reach at £60k",
+                        "prompt": "What reach would I get at £60k?"
+                    }
+                ]
+            }
+        ]
+    },
+    "resolved_elicitations": [
+        {
+            "type": "options",
+            "id": "elc_creative_length.ec6111f7",
+            "prompt": "How long is the creative?",
+            "select": "single",
+            "allow_custom": true,
+            "custom_placeholder": "Answer in your own words…",
+            "allow_skip": true,
+            "allow_reopen": false,
+            "status": "answered",
+            "options": [
+                {
+                    "id": "opt_10s",
+                    "label": "10 seconds",
+                    "description": "Cheapest CPM — most impressions for the budget",
+                    "badge": "Suggested"
+                },
+                {
+                    "id": "opt_15s",
+                    "label": "15 seconds",
+                    "description": "Standard Amazon length · every deal in the plan accepts it",
+                    "badge": null
+                },
+                {
+                    "id": "opt_20s",
+                    "label": "20 seconds",
+                    "description": "More room for the message · slightly narrower inventory",
+                    "badge": null
+                },
+                {
+                    "id": "opt_30s",
+                    "label": "30 seconds",
+                    "description": "Full story · highest CPM, lowest frequency",
+                    "badge": null
+                }
+            ],
+            "answer": {
+                "selected_option_ids": [
+                    "opt_20s"
+                ],
+                "custom_text": null,
+                "answered_at": "2026-08-16T07:51:25.790Z"
+            }
+        }
+    ],
+    "resolved_blocks": [
+        {
+            "type": "options",
+            "id": "elc_creative_length.ec6111f7",
+            "prompt": "How long is the creative?",
+            "select": "single",
+            "allow_custom": true,
+            "custom_placeholder": "Answer in your own words…",
+            "allow_skip": true,
+            "allow_reopen": false,
+            "status": "answered",
+            "options": [
+                {
+                    "id": "opt_10s",
+                    "label": "10 seconds",
+                    "description": "Cheapest CPM — most impressions for the budget",
+                    "badge": "Suggested"
+                },
+                {
+                    "id": "opt_15s",
+                    "label": "15 seconds",
+                    "description": "Standard Amazon length · every deal in the plan accepts it",
+                    "badge": null
+                },
+                {
+                    "id": "opt_20s",
+                    "label": "20 seconds",
+                    "description": "More room for the message · slightly narrower inventory",
+                    "badge": null
+                },
+                {
+                    "id": "opt_30s",
+                    "label": "30 seconds",
+                    "description": "Full story · highest CPM, lowest frequency",
+                    "badge": null
+                }
+            ],
+            "answer": {
+                "selected_option_ids": [
+                    "opt_20s"
+                ],
+                "custom_text": null,
+                "answered_at": "2026-08-16T07:51:25.790Z"
+            }
+        }
+    ],
+    "plan_version": 2
+}

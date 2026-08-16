@@ -1,0 +1,146 @@
+{
+    "session_id": "8230152f-c8fe-4999-afad-b9377d819759",
+    "stage": "basics",
+    "reply": "Creative length drives both the CPM and how much of the plan's inventory you can buy.",
+    "message": {
+        "id": "msg_1cc00d5d-8ae2-428b-a2fa-8431d9668579",
+        "role": "assistant",
+        "content": [
+            {
+                "type": "text",
+                "text": "Creative length drives both the CPM and how much of the plan's inventory you can buy."
+            },
+            {
+                "type": "options",
+                "id": "elc_creative_length.ec6111f7",
+                "prompt": "How long is the creative?",
+                "select": "single",
+                "allow_custom": true,
+                "custom_placeholder": "Answer in your own words…",
+                "allow_skip": true,
+                "allow_reopen": false,
+                "status": "pending",
+                "options": [
+                    {
+                        "id": "opt_10s",
+                        "label": "10 seconds",
+                        "description": "Cheapest CPM — most impressions for the budget",
+                        "badge": "Suggested"
+                    },
+                    {
+                        "id": "opt_15s",
+                        "label": "15 seconds",
+                        "description": "Standard Amazon length · every deal in the plan accepts it",
+                        "badge": null
+                    },
+                    {
+                        "id": "opt_20s",
+                        "label": "20 seconds",
+                        "description": "More room for the message · slightly narrower inventory",
+                        "badge": null
+                    },
+                    {
+                        "id": "opt_30s",
+                        "label": "30 seconds",
+                        "description": "Full story · highest CPM, lowest frequency",
+                        "badge": null
+                    }
+                ],
+                "answer": null
+            }
+        ]
+    },
+    "resolved_elicitations": [
+        {
+            "type": "options",
+            "id": "elc_markets.91292b88",
+            "prompt": "Which markets should it run in?",
+            "select": "multi",
+            "allow_custom": true,
+            "custom_placeholder": "Another market…",
+            "allow_skip": false,
+            "allow_reopen": false,
+            "status": "answered",
+            "options": [
+                {
+                    "id": "opt_uk",
+                    "label": "UK",
+                    "description": "Ran last year · 1.4M addressable on Streaming TV",
+                    "badge": "Suggested"
+                },
+                {
+                    "id": "opt_usa",
+                    "label": "USA",
+                    "description": "Ran last year · deepest inventory, highest CPMs",
+                    "badge": "Suggested"
+                },
+                {
+                    "id": "opt_fr",
+                    "label": "France",
+                    "description": "New market · needs its own creative in French",
+                    "badge": null
+                },
+                {
+                    "id": "opt_de",
+                    "label": "Germany",
+                    "description": "New market · strong Prime Video base",
+                    "badge": null
+                }
+            ],
+            "answer": {
+                "selected_option_ids": [
+                    "opt_uk"
+                ],
+                "custom_text": null,
+                "answered_at": "2026-08-16T07:49:05.751Z"
+            }
+        }
+    ],
+    "resolved_blocks": [
+        {
+            "type": "options",
+            "id": "elc_markets.91292b88",
+            "prompt": "Which markets should it run in?",
+            "select": "multi",
+            "allow_custom": true,
+            "custom_placeholder": "Another market…",
+            "allow_skip": false,
+            "allow_reopen": false,
+            "status": "answered",
+            "options": [
+                {
+                    "id": "opt_uk",
+                    "label": "UK",
+                    "description": "Ran last year · 1.4M addressable on Streaming TV",
+                    "badge": "Suggested"
+                },
+                {
+                    "id": "opt_usa",
+                    "label": "USA",
+                    "description": "Ran last year · deepest inventory, highest CPMs",
+                    "badge": "Suggested"
+                },
+                {
+                    "id": "opt_fr",
+                    "label": "France",
+                    "description": "New market · needs its own creative in French",
+                    "badge": null
+                },
+                {
+                    "id": "opt_de",
+                    "label": "Germany",
+                    "description": "New market · strong Prime Video base",
+                    "badge": null
+                }
+            ],
+            "answer": {
+                "selected_option_ids": [
+                    "opt_uk"
+                ],
+                "custom_text": null,
+                "answered_at": "2026-08-16T07:49:05.751Z"
+            }
+        }
+    ],
+    "plan_version": 1
+}

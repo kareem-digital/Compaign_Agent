@@ -1,20 +1,26 @@
 import logging
 import time
 import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from app.agent.checkpointer import create_checkpointer
 from app.agent.graph import build_graph
-from app.api.presentation import Block, build_blocks, summary_block
+from app.agent.voice import render_turn
+from app.api.presentation import Block, build_blocks
+from app.api.validation_details import ValidationDetails, build_validation_details
 from app.config import get_settings
+from app.core.auth import AuthenticatedUser, require_authenticated_user
 from app.core.context import bind
 from app.core.exceptions import (
     AdvertiserContextMissingError,
     KillSwitchEngagedError,
     MCPError,
     PolicyDeniedError,
+    RegistrySyncError,
+    RegistryValidationError,
 )
 from app.core.logging import kv
 from app.tools.mcp import create_mcp_client
@@ -72,12 +78,7 @@ async def _get_graph(advertiser_id: str):
 
 
 class ChatRequest(BaseModel):
-    message: str | None = Field(
-        None, max_length=2000, description="Plain text user message."
-    )
-    content: list[dict] = Field(
-        default_factory=list, description="Structured content blocks."
-    )
+    message: str = Field(..., min_length=1, max_length=2000)
     session_id: str = Field(
         default_factory=lambda: str(uuid.uuid4()),
         description="Send the same ID to continue a conversation; omit to start new.",
@@ -90,21 +91,19 @@ class ChatResponse(BaseModel):
     stage: str | None = Field(
         None, description="Stage the plan reached on this turn, e.g. 'forecast'."
     )
+    # Additive: `reply` is still the whole conversation, unchanged. This is the same
+    # turn's grounding structured, so a UI can render what failed, what VOW does
+    # sell instead and which snapshot said so, rather than parsing the prose for it.
+    validation: ValidationDetails
+    # Also additive, and the other half of the same idea: `validation` is what the
+    # backend *checked*, `blocks` is what the turn *shows*. Both describe the reply
+    # rather than replacing it, so a client can consume one, both or neither.
     blocks: list[Block] = Field(
         default_factory=list,
         description=(
             "The reply broken into renderable pieces. Each says what it is, how "
             "it should appear, and carries the data behind it. `reply` remains "
             "the plain-text equivalent."
-        ),
-    )
-    plan_state: dict = Field(
-        default_factory=dict,
-        description=(
-            "Current plan field values for the strategy panel. Always present, "
-            "regardless of which chat block this turn emits. Keys match "
-            "_SUMMARY_ROWS fields: brand, markets, flight_dates, durations, "
-            "market_budgets, goal, kpi. Values are human-readable strings."
         ),
     )
 
@@ -114,6 +113,9 @@ class SessionState(BaseModel):
     message_count: int
     stage: str | None = None
     next_node: list[str] | None = None
+    # Here as well as on `ChatResponse`, so reopening a session restores the panel
+    # instead of leaving it blank until the trader says something else.
+    validation: ValidationDetails
 
 
 def _content(message) -> str:
@@ -132,25 +134,21 @@ def _is_assistant(message) -> bool:
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     request: ChatRequest,
-    vowmade_advertiser_id: str | None = Header(None, alias="Vowmade-Advertiser-Id"),
+    current_user: Annotated[AuthenticatedUser, Depends(require_authenticated_user)],
+    vowmade_advertiser_id: Annotated[
+        str | None,
+        Header(alias="Vowmade-Advertiser-Id"),
+    ] = None,
 ):
     advertiser_id = _resolve_advertiser(vowmade_advertiser_id)
     bind(session_id=request.session_id, advertiser_id=advertiser_id)
 
     graph = await _get_graph(advertiser_id)
-    thread_config = {"configurable": {"thread_id": request.session_id}}
-
-    # Determine effective message text from request.message or request.content
-    effective_message = (request.message or "").strip()
-    if not effective_message and request.content:
-        for item in request.content:
-            if isinstance(item, dict):
-                if item.get("custom_text"):
-                    effective_message = str(item.get("custom_text")).strip()
-                elif item.get("selected_option_ids"):
-                    effective_message = ", ".join(item.get("selected_option_ids"))
-    if not effective_message:
-        effective_message = "option selected"
+    thread_config = {
+        "configurable": {
+            "thread_id": f"{current_user.subject}:{advertiser_id}:{request.session_id}",
+        }
+    }
 
     # Message count before this turn, so we can return only what this turn said
     # rather than the whole transcript.
@@ -160,15 +158,15 @@ async def chat(
     started = time.monotonic()
     logger.info(
         "turn.start",
-        extra=kv(turn=(prior_count // 5) + 1, message_chars=len(effective_message)),
+        extra=kv(turn=(prior_count // 5) + 1, message_chars=len(request.message)),
     )
     # The brief itself is client-commercial data, so content stays at DEBUG.
-    logger.debug("turn.message", extra=kv(text=effective_message))
+    logger.debug("turn.message", extra=kv(text=request.message))
 
     try:
         result = await graph.ainvoke(
             {
-                "messages": [{"role": "user", "content": effective_message}],
+                "messages": [{"role": "user", "content": request.message}],
                 "advertiser_id": advertiser_id,
                 "session_id": request.session_id,
             },
@@ -207,6 +205,34 @@ async def chat(
             "turn.failed", extra=kv(reason="mcp_error", tool=getattr(exc, "tool", None))
         )
         raise HTTPException(status_code=502, detail=f"VOW is unavailable: {exc}") from exc
+    except RegistryValidationError as exc:
+        # Before RegistrySyncError, which it subclasses - reversing these two
+        # would swallow the validation case and lose the violation list.
+        #
+        # Distinct from a sync failure: VOW answered, and what it said did not
+        # pass the integrity checks. The violation list is the whole reason that
+        # error carries one, so it goes to the log.
+        logger.exception(
+            "turn.failed",
+            extra=kv(
+                reason="registry_validation",
+                violations=exc.violations[:20],
+                violation_count=len(exc.violations),
+            ),
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Reference data from VOW did not pass validation, so planning is paused.",
+        ) from exc
+    except RegistrySyncError as exc:
+        # Reference data could not be built at all. Reporting this as a generic
+        # "Agent error" is what used to send people looking at the graph when the
+        # problem was upstream.
+        logger.exception("turn.failed", extra=kv(reason="registry_sync"))
+        raise HTTPException(
+            status_code=503,
+            detail="Reference data from VOW could not be loaded, so planning is paused.",
+        ) from exc
     except Exception:
         logger.exception("turn.failed", extra=kv(reason="graph_error"))
         raise HTTPException(status_code=500, detail="Agent error") from None
@@ -243,56 +269,69 @@ async def chat(
         logger.error("turn.failed", extra=kv(reason="no_reply_produced"))
         raise HTTPException(status_code=500, detail="Agent produced no response")
 
-    # The graph runs several nodes per turn and each one speaks. Joined into one
-    # string so the transport contract stays a single reply.
-    summary = summary_block(result)
-    plan_dict = {
-        row["field"]: row["value"]
-        for row in summary.data.get("rows", [])
-    }
-    deals = result.get("selected_deals") or []
-    preferred = result.get("preferred_providers") or []
-    if preferred:
-        plan_dict["inventory"] = ", ".join(preferred)
-    elif deals:
-        plan_dict["inventory"] = ", ".join(dict.fromkeys(d.get("provider", "") for d in deals if d.get("provider")))
-
-    if result.get("chosen_audience"):
-        aud = result["chosen_audience"]
-        profile = aud.get("profile", "")
-        plan_dict["audience"] = f"{profile.title()} ({aud.get('name', '')})" if profile else aud.get("name", "Balanced")
-        if aud.get("effective_cpm"):
-            plan_dict["bid"] = f"£{aud['effective_cpm']} effective CPM"
-    elif deals:
-        plan_dict["bid"] = f"£{deals[0]['cpm']} deal CPM"
-
-    if result.get("locations"):
-        plan_dict["targeting"] = ", ".join(result["locations"])
-    elif result.get("markets"):
-        plan_dict["targeting"] = f"Default {result['markets'][0]}-wide"
+    # The graph runs several nodes per turn and each one speaks. Re-voiced into one
+    # reply so the transport contract stays a single string - and so the trader
+    # reads a turn rather than three stacked blocks. `render_turn` returns the
+    # plain join whenever it cannot do better, so this cannot fail the request.
+    #
+    # The blocks themselves stay in `state["messages"]` untouched. That is what
+    # `gates.say` fingerprints and what the audit replays; see `agent.voice`.
+    reply = await render_turn(
+        replies,
+        trader_message=request.message,
+        stage=result.get("current_stage"),
+        # From state rather than from the prose: the providers worth protecting in
+        # a rewrite are the ones the plan actually holds.
+        providers=tuple(
+            dict.fromkeys(
+                deal["provider"]
+                for deal in result.get("selected_deals") or []
+                if deal.get("provider")
+            )
+        ),
+    )
 
     return ChatResponse(
         session_id=request.session_id,
-        reply="\n\n".join(r for r in replies if r),
+        reply=reply,
         stage=result.get("current_stage"),
+        # Read off the state the graph just returned. Nothing is revalidated here -
+        # this is the outcome the nodes recorded, which is what the flow itself
+        # routed on.
+        validation=build_validation_details(result),
         blocks=build_blocks(result),
-        plan_state=plan_dict,
     )
 
 
 @router.get("/{session_id}", response_model=SessionState)
 async def get_session(
     session_id: str,
-    vowmade_advertiser_id: str | None = Header(None, alias="Vowmade-Advertiser-Id"),
+    current_user: Annotated[AuthenticatedUser, Depends(require_authenticated_user)],
+    vowmade_advertiser_id: Annotated[
+        str | None,
+        Header(alias="Vowmade-Advertiser-Id"),
+    ] = None,
 ):
     advertiser_id = _resolve_advertiser(vowmade_advertiser_id)
+    bind(session_id=session_id, advertiser_id=advertiser_id)
     graph = await _get_graph(advertiser_id)
-    thread_config = {"configurable": {"thread_id": session_id}}
+    thread_config = {
+        "configurable": {
+            "thread_id": f"{current_user.subject}:{advertiser_id}:{session_id}",
+        }
+    }
 
+    # A checkpointer failure is not a missing session. Reporting one as the other
+    # is how a real outage gets triaged as "the trader mistyped an ID" - so the
+    # read is logged before it is translated, and only an empty result is a 404.
     try:
         state = await graph.aget_state(thread_config)
     except Exception as exc:
-        raise HTTPException(status_code=404, detail=f"Session {session_id} not found") from exc
+        logger.exception(
+            "session.read_failed",
+            extra=kv(session_id=session_id, reason=type(exc).__name__),
+        )
+        raise HTTPException(status_code=503, detail="Session store is unavailable.") from exc
 
     if not state or not state.values:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
@@ -302,4 +341,5 @@ async def get_session(
         message_count=len(state.values.get("messages", [])),
         stage=state.values.get("current_stage"),
         next_node=list(state.next) if state.next else None,
+        validation=build_validation_details(state.values),
     )
