@@ -76,7 +76,8 @@ class BriefFields(BaseModel):
     flight_start: str | None = Field(None, description="ISO date YYYY-MM-DD")
     flight_end: str | None = Field(None, description="ISO date YYYY-MM-DD")
     durations: list[str] = Field(
-        default_factory=list, description="Creative durations in seconds: only 10, 15, 20 or 30"
+        default_factory=list,
+        description="Creative durations in seconds mentioned by the trader, e.g. ['10'], ['15'], ['30'], ['45']. Return whatever number they gave — deciding whether it is supported is not your job.",
     )
     budget_amount: str | None = Field(None, description="Decimal string, no symbol, e.g. 50000.00")
     currency: str | None = Field(None, description="GBP, USD or EUR")
@@ -155,13 +156,11 @@ def _budget(text: str) -> tuple[str | None, str | None]:
 
 
 def _durations(text: str) -> list[str]:
-    found = set(re.findall(r"\b(10|15|20|30)\s*(?:s\b|sec|second)", text, re.I))
+    found = set(re.findall(r"\b(\d+)\s*(?:s\b|sec|second)", text, re.I))
 
-    # "15 and 30 second creatives" carries the unit only on the last number, so
-    # once a unit word appears anywhere, bare durations in the same message
-    # count too. Also support bare selected values like "15", "30".
-    if re.search(r"\b(?:secs?|seconds?)\b|\d\s*s\b", text, re.I) or re.match(r"^\s*(10|15|20|30)\s*$", text.strip()):
-        found.update(re.findall(r"\b(10|15|20|30)\b", text))
+    # Once a unit word appears anywhere, bare durations in the same message count too.
+    if re.search(r"\b(?:secs?|seconds?)\b|\d\s*s\b", text, re.I) or re.match(r"^\s*(\d+)\s*$", text.strip()):
+        found.update(re.findall(r"\b(\d+)\b", text))
 
     return sorted(found, key=int)
 
@@ -320,8 +319,9 @@ def _system_prompt() -> str:
         "You are given what is already known and the trader's latest message.\n"
         "Return the COMPLETE updated set: carry forward anything still true, apply "
         "any correction the message makes, and add anything new.\n"
-        "Rules: markets are ISO country codes. Durations may only be 10, 15, 20 or "
-        "30. Dates are ISO YYYY-MM-DD; a bare month means its first and last day.\n"
+        "Rules: markets are ISO country codes. Extract any creative durations in seconds mentioned "
+        "(e.g. 10, 15, 20, 30, 45, 60). Return whatever duration they asked for — deciding whether "
+        "it is supported is not your job. Dates are ISO YYYY-MM-DD; a bare month means its first and last day.\n"
         "A DATE WITH NO YEAR MEANS THE NEXT TIME IT OCCURS, resolved forward from "
         "today: a trader saying 'October' means the next October to come, never the "
         "one just gone.\n"
@@ -601,6 +601,16 @@ def make_extract_fields(registry):
         # **Is what the trader said something VOW sells?** See `_grounding`. Run before the
         # confirmation is built, so a note can ride along with it.
         blocking, notes, rejected = await _grounding(registry, fields)
+
+        # Do not accept rejected values into the plan state
+        if "flight_dates" in rejected:
+            fields["flight_dates"] = None
+        if "durations" in rejected:
+            fields["durations"] = [d for d in (fields.get("durations") or []) if d in ("10", "15", "20", "30")]
+        if "markets" in rejected:
+            fields["markets"] = []
+        if "primary_currency" in rejected:
+            fields["primary_currency"] = "GBP"
 
         force_show_inventory = False
         awaiting_choice = state.get("awaiting_choice")

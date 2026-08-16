@@ -196,8 +196,9 @@ def _ask_for(field: str, state: dict) -> Block | None:
         inv_name = preferred[0] if preferred else (deals[0]["provider"] if deals else None)
         market = (state.get("markets") or ["GB"])[0]
         prefix = f"Got it — {inv_name} in {market}. " if inv_name else (f"Got it — campaign in {market}. " if market else "")
+        prompt_text = "Flight dates must be upcoming. When should the campaign run?" if "flight_dates" in (state.get("rejected_fields") or []) else f"{prefix}When should the campaign run?"
         return Block(
-            text=f"{prefix}When should the campaign run?",
+            text=prompt_text,
             interaction=Interaction.INPUT_DATE_RANGE,
             layout=Layout.DATE_RANGE_PICKER,
             field=field,
@@ -205,8 +206,9 @@ def _ask_for(field: str, state: dict) -> Block | None:
         )
 
     if field == "durations":
+        prompt_text = "Please choose a supported creative length (10s, 15s, 20s, or 30s):" if "durations" in (state.get("rejected_fields") or []) else "Which creative length would you like to use?"
         return Block(
-            text="Which creative length would you like to use?",
+            text=prompt_text,
             interaction=Interaction.SELECT_ONE,
             layout=Layout.CHIPS,
             field=field,
