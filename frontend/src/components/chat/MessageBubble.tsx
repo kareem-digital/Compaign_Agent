@@ -41,7 +41,10 @@ export function MessageBubble({
         if (block.type === "text") return block.text;
         if (block.type !== "options_answer") return "";
         const { labels, customText } = resolveAnswerLabels(messages, block);
-        const parts = [...labels, ...(customText ? [customText] : [])];
+        const parts = [
+          ...labels,
+          ...(customText && !labels.includes(customText) ? [customText] : []),
+        ];
         return parts.length ? parts.join(", ") : COPY.recorded;
       })
       .filter(Boolean)
