@@ -2,7 +2,6 @@ import { useState, useId } from "react";
 import { Check } from "@/components/icons";
 import type { ElicitationSubmission } from "@/hooks/use-chat";
 import type { DraftSelection } from "@/lib/chat";
-import { cn } from "@/lib/utils";
 import type { DatePickerBlock } from "@/types/chat";
 
 interface DateRangePickerCardProps {
@@ -19,8 +18,8 @@ export function DateRangePickerCard({
   onAnswer,
 }: DateRangePickerCardProps) {
   const today = new Date().toISOString().split("T")[0];
-  const [startDate, setStartDate] = useState("2026-10-01");
-  const [endDate, setEndDate] = useState("2026-10-31");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const promptId = useId();
 
   const busy = submission?.state === "submitting";
@@ -31,12 +30,6 @@ export function DateRangePickerCard({
   const isPast = Boolean(startDate && startDate < today);
   const isInvalidOrder = Boolean(startDate && endDate && endDate <= startDate);
   const isValid = Boolean(startDate && endDate && !isPast && !isInvalidOrder);
-
-  const handlePreset = (start: string, end: string) => {
-    if (disabled) return;
-    setStartDate(start);
-    setEndDate(end);
-  };
 
   const handleConfirm = () => {
     if (!isValid || disabled) return;
@@ -61,51 +54,6 @@ export function DateRangePickerCard({
           Select the flight start and end dates (past dates are disabled).
         </p>
       </div>
-
-      {/* Preset Quick Chips */}
-      {!locked && (
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() => handlePreset("2026-10-01", "2026-10-31")}
-            className={cn(
-              "btn btn-xs rounded-full border border-base-300 font-semibold transition-colors",
-              startDate === "2026-10-01" && endDate === "2026-10-31"
-                ? "bg-accent text-accent-content border-accent"
-                : "bg-base-200/60 hover:bg-accent/10 hover:border-accent/40"
-            )}
-          >
-            October 2026
-          </button>
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() => handlePreset("2026-11-01", "2026-11-30")}
-            className={cn(
-              "btn btn-xs rounded-full border border-base-300 font-semibold transition-colors",
-              startDate === "2026-11-01" && endDate === "2026-11-30"
-                ? "bg-accent text-accent-content border-accent"
-                : "bg-base-200/60 hover:bg-accent/10 hover:border-accent/40"
-            )}
-          >
-            November 2026
-          </button>
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() => handlePreset("2026-10-01", "2026-12-31")}
-            className={cn(
-              "btn btn-xs rounded-full border border-base-300 font-semibold transition-colors",
-              startDate === "2026-10-01" && endDate === "2026-12-31"
-                ? "bg-accent text-accent-content border-accent"
-                : "bg-base-200/60 hover:bg-accent/10 hover:border-accent/40"
-            )}
-          >
-            Q4 2026 (Oct–Dec)
-          </button>
-        </div>
-      )}
 
       {/* Date Pickers Grid */}
       <div className="grid grid-cols-2 gap-3">
