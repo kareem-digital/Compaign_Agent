@@ -4,7 +4,7 @@ import { WorkspaceHeader } from "@/components/layout";
 import type { ElicitationSubmission } from "@/hooks/use-chat";
 import type { DraftSelection } from "@/lib/chat";
 import { cn } from "@/lib/utils";
-import type { ChatMessage, OptionsBlock } from "@/types/chat";
+import type { ChatMessage, DatePickerBlock, OptionsBlock } from "@/types/chat";
 import type { StrategyPlan } from "@/types/strategy";
 
 const COPY = {
@@ -18,10 +18,10 @@ interface ChatWorkspaceProps {
   isSending: boolean;
   error: string | null;
   /** The one question the user may answer, or null. */
-  activeElicitation: OptionsBlock | null;
+  activeElicitation: OptionsBlock | DatePickerBlock | null;
   submissions: Record<string, ElicitationSubmission>;
   onSend: (value: string) => void;
-  onAnswer: (block: OptionsBlock, draft: DraftSelection) => void;
+  onAnswer: (block: any, draft: DraftSelection) => void;
   className?: string;
 }
 
@@ -46,8 +46,11 @@ export function ChatWorkspace({
   // else" field — the design gives the card no other affordance for it. Routing
   // it through `onAnswer` keeps the text tied to its elicitation on the wire
   // rather than arriving as an unrelated turn the server has to guess about.
-  const answerable = activeElicitation?.allowCustom ? activeElicitation : null;
-  const isConcluded = plan.status === "concluded" || messages.some((m) => m.stage === "concluded");
+  const answerable =
+    activeElicitation?.type === "options" && activeElicitation.allowCustom
+      ? activeElicitation
+      : null;
+  const isConcluded = (plan.status as string) === "concluded";
   const submit = (value: string) =>
     answerable
       ? onAnswer(answerable, { optionIds: [], customText: value })

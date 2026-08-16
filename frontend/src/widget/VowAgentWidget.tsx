@@ -7,7 +7,7 @@ import { useChat } from "@/hooks/use-chat";
 import { AgentClientProvider, type AgentClient } from "@/lib/agent";
 import { DRAFT_PLAN } from "@/lib/strategy";
 import { cn } from "@/lib/utils";
-import type { StageStatus, StrategyPlan } from "@/types/strategy";
+import type { StrategyPlan } from "@/types/strategy";
 
 const NOT_STATED = "not stated";
 

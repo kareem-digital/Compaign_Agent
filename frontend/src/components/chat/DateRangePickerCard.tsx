@@ -1,5 +1,5 @@
 import { useState, useId } from "react";
-import { Check, ChevronRight } from "@/components/icons";
+import { Check } from "@/components/icons";
 import type { ElicitationSubmission } from "@/hooks/use-chat";
 import type { DraftSelection } from "@/lib/chat";
 import { cn } from "@/lib/utils";

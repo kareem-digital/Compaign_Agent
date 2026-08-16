@@ -3,7 +3,7 @@ import { OptionsBlockCard } from "@/components/chat/OptionsBlockCard";
 import { BrandMark } from "@/components/icons";
 import type { ElicitationSubmission } from "@/hooks/use-chat";
 import { resolveAnswerLabels, type DraftSelection } from "@/lib/chat";
-import type { ChatMessage, OptionsBlock } from "@/types/chat";
+import type { ChatMessage } from "@/types/chat";
 
 const COPY = { recorded: "Selection recorded" } as const;
 

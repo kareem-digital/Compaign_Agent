@@ -58,6 +58,13 @@ export interface DatePickerBlock {
   answer?: ElicitationAnswer | null;
 }
 
+export interface OptionsAnswerBlock {
+  type: "options_answer";
+  elicitationId: string;
+  selectedOptionIds: string[];
+  customText?: string | null;
+}
+
 export type MessageBlock = TextBlock | OptionsBlock | OptionsAnswerBlock | DatePickerBlock;
 
 /** Blocks a user turn can carry. */

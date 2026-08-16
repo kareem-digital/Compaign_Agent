@@ -1,9 +1,8 @@
 import { useEffect, useId, useState } from "react";
 
-import { Check, ChevronRight, Send } from "@/components/icons";
+import { Check, ChevronRight } from "@/components/icons";
 import type { ElicitationSubmission } from "@/hooks/use-chat";
 import type { DraftSelection } from "@/lib/chat";
-import { chatLimits } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { OptionChoice, OptionsBlock } from "@/types/chat";
 
@@ -157,7 +156,6 @@ export function OptionsBlockCard({
   onAnswer,
 }: OptionsBlockCardProps) {
   const [selected, setSelected] = useState<string[]>([]);
-  const [customText, setCustomText] = useState("");
   const promptId = useId();
 
   const busy = submission?.state === "submitting";
@@ -206,8 +204,6 @@ export function OptionsBlockCard({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   });
-
-  const canSendCustom = customText.trim().length > 0 && !disabled;
 
   return (
     <div className="flex flex-col gap-2.5" role="group" aria-labelledby={promptId}>
