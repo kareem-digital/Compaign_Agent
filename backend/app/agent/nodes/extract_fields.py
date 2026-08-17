@@ -357,25 +357,27 @@ def _merge(state: PlanningAgentState, found: BriefFields) -> PlanningAgentState:
 
 
 def _confirmation(fields: PlanningAgentState) -> str:
-    dates = fields.get("flight_dates")
-    budgets = fields.get("market_budgets")
+    known = []
+    if fields.get("markets"):
+        known.append(f"Market: {', '.join(fields['markets'])}")
+    if fields.get("flight_dates"):
+        dates = fields["flight_dates"]
+        known.append(f"Flight: {dates.get('lower')} to {dates.get('upper')}")
+    elif fields.get("flight_start"):
+        known.append(f"Flight start: {fields['flight_start']}")
+    if fields.get("durations"):
+        known.append(f"Creative: {', '.join(fields['durations'])}s")
+    if fields.get("market_budgets"):
+        b = fields["market_budgets"][0]
+        known.append(f"Budget: {b.get('budget')} {fields.get('primary_currency', 'GBP')}")
+    elif fields.get("budget_amount"):
+        known.append(f"Budget: {fields['budget_amount']} {fields.get('primary_currency', 'GBP')}")
+    if fields.get("preferred_providers"):
+        known.append(f"Inventory: {', '.join(fields['preferred_providers'])}")
 
-    return "\n".join(
-        [
-            "Here is what I understood - correct anything that is wrong before I continue.",
-            "",
-            f"- Markets: {', '.join(fields['markets']) or 'not stated'}",
-            f"- Flight: {dates['lower']} to {dates['upper']}" if dates else "- Flight: not stated",
-            f"- Creative durations: {', '.join(fields['durations']) or 'not stated'}",
-            f"- Currency: {fields['primary_currency']}",
-            (
-                f"- Budget: {budgets[0]['budget']} {fields['primary_currency']} ({budgets[0]['market']})"
-                if budgets
-                else "- Budget: not stated"
-            ),
-            "- Goal: Awareness, measured on reach (fixed for CTV)",
-        ]
-    )
+    if not known:
+        return "Understood — let's plan your CTV campaign."
+    return f"Understood: {', '.join(known)}."
 
 
 def get_llm():

@@ -365,11 +365,23 @@ async def chat(
     wire_content: list[Any] = []
     if reply:
         wire_content.append({"type": "text", "text": reply})
-    for block in presentation_blocks:
-        # Convert presentation Block to the wire options shape the frontend reads.
-        if block.interaction in ("select_one", "select_many", "confirm"):
-            raw_options = block.data.get("options") or []
-            if not raw_options and block.data.get("rows"):
+
+    current_stage = result.get("current_stage")
+    # Only emit interactive elicitation options if the plan is still awaiting an answer
+    if current_stage != "delivered":
+        # Find the single active interactive block to emit
+        interactive_blocks = [
+            b for b in presentation_blocks
+            if b.interaction in ("select_one", "select_many", "confirm")
+        ]
+        # Prefer the primary block, or the last interactive block
+        target_block = next((b for b in interactive_blocks if b.primary), None) or (
+            interactive_blocks[-1] if interactive_blocks else None
+        )
+
+        if target_block is not None:
+            raw_options = target_block.data.get("options") or []
+            if not raw_options and target_block.data.get("rows"):
                 raw_options = [
                     {"value": row.get("value", row.get("provider", "")),
                      "label": row.get("provider", row.get("label", "")),
@@ -379,14 +391,15 @@ async def chat(
                          + (f' · {row.get("tier", "")}' if row.get("tier") else "")
                      ),
                      "badge": "Amazon-owned" if "Amazon" in (row.get("tier") or "") else None}
-                    for row in block.data["rows"]
+                    for row in target_block.data["rows"]
                 ]
             wire_content.append({
                 "type": "options",
-                "id": f"elc_{block.field or block.layout}.{abs(hash(reply)) % 0xFFFFFFFF:08x}",
-                "prompt": block.text,
-                "select": "single" if block.interaction == "select_one" else "multi",
-                "allow_custom": False,
+                "id": f"elc_{target_block.field or target_block.layout}.{abs(hash(reply)) % 0xFFFFFFFF:08x}",
+                "prompt": target_block.text,
+                "select": "single" if target_block.interaction == "select_one" else "multi",
+                "allow_custom": True,
+                "custom_placeholder": "Answer in your own words…",
                 "allow_skip": False,
                 "allow_reopen": False,
                 "status": "pending",
