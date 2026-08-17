@@ -79,6 +79,7 @@ BASICS: tuple[tuple[tuple[str, ...], str], ...] = (
 # different market or set of durations. Could you tell me?"
 NO_INVENTORY = "a market or set of durations with inventory available"
 NO_AUDIENCE = "an audience to plan against"
+NO_TARGETING_DECISION = "a targeting decision (keep default or refine)"
 # Distinct from NO_AUDIENCE, which means VOW suggested nothing. This one means the
 # options are on screen and the trader has not picked yet - the flow's only
 # genuine wait-for-the-human step, and the trigger for delivering the plan.
@@ -90,11 +91,45 @@ def missing_basics(state: PlanningAgentState) -> list[str]:
 
     Answered means every key the entry names is present, so a budget the trader
     gave before naming a market counts - it is held in `budget_amount` whether or
-    not `market_budgets` could be keyed yet. Checking the derived field instead
-    is what used to make the agent ask a second time for something it had been
-    told.
+    not `market_budgets` could be keyed yet. Checking either raw or composite slots
+    guarantees that an answered question is never reported as still missing.
     """
-    return [label for keys, label in BASICS if not all(state.get(key) for key in keys)]
+    missing: list[str] = []
+
+    # 1. Markets
+    if not (state.get("markets") or state.get("market")):
+        missing.append("which country the campaign runs in")
+
+    # 2. Flight dates (raw start/end or composite flight_dates)
+    has_dates = bool(
+        (state.get("flight_start") and state.get("flight_end"))
+        or (
+            state.get("flight_dates")
+            and isinstance(state.get("flight_dates"), dict)
+            and state.get("flight_dates", {}).get("lower")
+            and state.get("flight_dates", {}).get("upper")
+        )
+    )
+    if not has_dates:
+        missing.append("the start and end dates")
+
+    # 3. Durations
+    if not state.get("durations"):
+        missing.append(_DURATIONS_LABEL)
+
+    # 4. Budget (raw amount or market_budgets)
+    has_budget = bool(
+        state.get("budget_amount")
+        or (
+            state.get("market_budgets")
+            and isinstance(state.get("market_budgets"), list)
+            and any(isinstance(b, dict) and b.get("budget") for b in state.get("market_budgets", []))
+        )
+    )
+    if not has_budget:
+        missing.append("the budget")
+
+    return missing
 
 
 # --- validation outcomes ------------------------------------------------------
@@ -294,6 +329,15 @@ def next_question(state: PlanningAgentState) -> dict | None:
 # and record validation outcomes, and these only decide where to go next.
 
 
+def route_planner(state: PlanningAgentState) -> str:
+    """Orchestrator dispatch router based on Planner Agent evaluation."""
+    from app.agent.nodes.planner import evaluate_state_and_plan
+
+    decision = evaluate_state_and_plan(state)
+    return decision["next_agent"]
+
+
+
 def route_after_basics(state: PlanningAgentState) -> str:
     """Validate as soon as there is a market to validate against, gaps or not.
 
@@ -323,23 +367,31 @@ def route_after_validation(state: PlanningAgentState) -> str:
 
 
 def route_after_inventory(state: PlanningAgentState) -> str:
-    """Onward, or stop - but do not ask twice.
+    """Onward to targeting, or stop - but do not ask twice.
 
     The inventory stage explains its own dead end and asks its own question, so
     routing to `ask` would append a second, vaguer one immediately underneath.
     Two questions in a turn is worse than one: the trader has to work out which
     to answer. So that path ends the turn instead.
-
-    A blocker overrides that, because an unsaid validation failure is worse than
-    a duplicated question - and the defensive `missing_basics` branch still
-    routes to `ask`, because there the node deliberately says nothing.
     """
     awaiting = state.get("awaiting") or []
     conflicts = blocking(state)
 
     if not awaiting and not conflicts:
-        return "suggest_audiences"
+        return "collect_targeting"
     if awaiting == [NO_INVENTORY] and not conflicts:
+        return "end"
+    return "ask"
+
+
+def route_after_targeting(state: PlanningAgentState) -> str:
+    """Onward to audiences once targeting is settled."""
+    awaiting = state.get("awaiting") or []
+    conflicts = blocking(state)
+
+    if not awaiting and not conflicts:
+        return "suggest_audiences"
+    if awaiting == [NO_TARGETING_DECISION] and not conflicts:
         return "end"
     return "ask"
 

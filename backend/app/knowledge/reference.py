@@ -101,3 +101,47 @@ def tier_for_provider(name: str) -> str | None:
 def currency_for(market: str) -> str | None:
     """The currency a market trades in, or None if we don't sell there."""
     return next((m.get("currency") for m in markets() if m["value"] == market), None)
+
+
+def age_groups() -> list[str]:
+    """Standard demographic age cohorts."""
+    return ["18-24", "25-34", "35-44", "45-54", "55+"]
+
+
+def genders() -> list[str]:
+    """Gender options."""
+    return ["Female", "Male", "All"]
+
+
+def household_incomes(market: str = "GB") -> list[str]:
+    """Household income tiers."""
+    if market == "US":
+        return ["$50-75k", "$75-100k", "$100k+"]
+    return ["£35-55k", "£55-80k", "£80k+"]
+
+
+def household_types() -> list[str]:
+    """Household composition types."""
+    return ["Families with children", "Couples", "Single Person Households"]
+
+
+def device_types() -> list[dict]:
+    """Supported CTV device types."""
+    return [
+        {"value": "CONNECTED_TV", "label": "Smart TV", "required": True},
+        {"value": "STREAMING_STICK", "label": "Fire TV / Streaming Stick"},
+        {"value": "GAMES_CONSOLE", "label": "Games Console"},
+    ]
+
+
+def interest_categories() -> list[str]:
+    """In-market and lifestyle interest categories."""
+    return [
+        "Green / Environmentally Conscious",
+        "Health & Wellness",
+        "Organic & Natural Food Buyers",
+        "Runners & Fitness",
+        "Tech Enthusiasts",
+        "Entertainment & Gaming",
+    ]
+

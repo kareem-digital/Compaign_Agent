@@ -50,8 +50,28 @@ def _build(timeout: float, retries: int, reasoning_effort: str = ""):
     """
     settings = get_settings()
 
+    provider = (settings.llm_provider or "").lower().strip()
+    if provider == "openai":
+        if not settings.openai_api_key:
+            return None
+        try:
+            from langchain_openai import ChatOpenAI
+        except ImportError:
+            return None
+        extra: dict[str, Any] = {}
+        if reasoning_effort and _is_reasoning_model(settings.llm_model):
+            extra["reasoning_effort"] = reasoning_effort
+        return ChatOpenAI(
+            model=settings.llm_model or "gpt-4o-mini",
+            temperature=settings.llm_temperature,
+            api_key=SecretStr(settings.openai_api_key),
+            timeout=timeout,
+            max_retries=retries,
+            **extra,
+        )
+
     is_anthropic = (
-        settings.llm_provider.lower() == "anthropic"
+        provider == "anthropic"
         or (settings.anthropic_api_key and not settings.openai_api_key)
         or (settings.llm_model.lower().startswith("claude") and settings.anthropic_api_key)
     )

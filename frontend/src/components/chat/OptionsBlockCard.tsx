@@ -1,15 +1,18 @@
 import { useEffect, useId, useState } from "react";
 
-import { Check, ChevronRight } from "@/components/icons";
+import { Check, ChevronRight, Send } from "@/components/icons";
 import type { ElicitationSubmission } from "@/hooks/use-chat";
 import type { DraftSelection } from "@/lib/chat";
+import { chatLimits } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { OptionChoice, OptionsBlock } from "@/types/chat";
 
 const COPY = {
-  singleHint: "Pick one, then confirm",
+  singleHint: "Pick one — press 1–9 — then confirm, or answer in your own words",
   multiHint: "Pick any that apply, then confirm",
+  customFallback: "Something else…",
   confirm: "Confirm",
+  send: "Send answer",
   superseded: "We moved on from this question.",
   expired: "This question is no longer open.",
   stale: "Only the latest question can be answered.",
@@ -156,6 +159,7 @@ export function OptionsBlockCard({
   onAnswer,
 }: OptionsBlockCardProps) {
   const [selected, setSelected] = useState<string[]>([]);
+  const [customText, setCustomText] = useState("");
   const promptId = useId();
 
   const busy = submission?.state === "submitting";
@@ -205,6 +209,8 @@ export function OptionsBlockCard({
     return () => window.removeEventListener("keydown", onKeyDown);
   });
 
+  const canSendCustom = customText.trim().length > 0 && !disabled;
+
   return (
     <div className="flex flex-col gap-2.5" role="group" aria-labelledby={promptId}>
       <p id={promptId} className="text-body">
@@ -237,7 +243,43 @@ export function OptionsBlockCard({
         </button>
       )}
 
-
+      {/* A typed answer stays tied to this question: it goes out as the same
+          options_response the rows do, carrying custom_text instead of ids. */}
+      {block.allowCustom &&
+        (locked
+          ? recorded?.customText && (
+              <p className="text-body text-base-content/70 italic">
+                {recorded.customText}
+              </p>
+            )
+          : !busy && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={customText}
+                  disabled={disabled}
+                  maxLength={chatLimits.maxMessageLength}
+                  placeholder={block.customPlaceholder ?? COPY.customFallback}
+                  aria-label={`Your own answer to: ${block.prompt}`}
+                  onChange={(event) => setCustomText(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter") return;
+                    event.preventDefault();
+                    if (canSendCustom) answer([], customText);
+                  }}
+                  className="input input-sm h-9 flex-1 rounded-field border-base-300 bg-base-100 text-note"
+                />
+                <button
+                  type="button"
+                  disabled={!canSendCustom}
+                  aria-label={COPY.send}
+                  onClick={() => answer([], customText)}
+                  className="btn btn-square btn-sm btn-ghost size-9 rounded-field text-base-content/50"
+                >
+                  <Send className="size-3.5" />
+                </button>
+              </div>
+            ))}
 
       {busy && <span className="loading loading-dots loading-sm text-accent" />}
 

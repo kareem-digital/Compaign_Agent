@@ -14,6 +14,7 @@ import type {
   WireOptionsBlock,
 } from "@/lib/agent/wire";
 import { ApiError, createHttpClient } from "@/lib/api";
+import type { AccessTokenProvider } from "@/lib/auth";
 import { blocksToPlainText, textBlock } from "@/lib/chat";
 import type { AppConfig } from "@/lib/config";
 import { createId } from "@/lib/utils";
@@ -28,10 +29,9 @@ import type {
 export interface HttpAgentClientOptions {
   /** Injectable for tests; defaults to the global fetch. */
   fetchImpl?: typeof fetch;
+  accessToken?: AccessTokenProvider;
+  advertiserId?: string;
 }
-
-// TEMP: hardcoded advertiser context. Map to the host's real advertiser later.
-const ADVERTISER_ID = "dev-advertiser-0001";
 
 const STATUSES: ElicitationStatus[] = [
   "pending",
@@ -105,125 +105,13 @@ function toDomainBlock(wire: WireBlock): MessageBlock | null {
   }
 }
 
-function backendBlockToDomainBlock(block: any): MessageBlock | null {
-  if (!block) return null;
-
-  if (
-    block.interaction === "input_date_range" ||
-    block.layout === "date_range_picker" ||
-    block.field === "flight_dates"
-  ) {
-    return {
-      type: "date_picker",
-      id: block.field || createId(),
-      prompt: block.text || "When should the campaign run?",
-      earliest: block.data?.earliest || new Date().toISOString().split("T")[0],
-      status: "pending",
-    };
-  }
-
-  if (
-    block.interaction === "select_one" ||
-    block.interaction === "select_many" ||
-    block.interaction === "confirm"
-  ) {
-    let rawOptions = block.data?.options ?? [];
-    if (
-      rawOptions.length === 0 &&
-      block.data?.rows &&
-      Array.isArray(block.data.rows)
-    ) {
-      rawOptions = block.data.rows.map((row: any) => ({
-        value: row.provider
-          ? `${row.provider}${row.genre && row.genre !== "Run of service" ? ` (${row.genre})` : ""}`
-          : row.value || row.label,
-        label: row.provider
-          ? `${row.provider}${row.genre && row.genre !== "Run of service" ? ` (${row.genre})` : ""}`
-          : row.label || row.value,
-        description: `Indicative CPM: £${row.cpm}${row.lengths ? ` (${row.lengths})` : ""}${row.tier ? ` · ${row.tier}` : ""}`,
-        badge: row.tier?.includes("Amazon") ? "Amazon-owned" : null,
-        recommended: Boolean(row.selected),
-      }));
-    }
-
-    const options = rawOptions.map((opt: any) => {
-      let desc = opt.sublabel || opt.description || null;
-      if (opt.metrics && typeof opt.metrics === "object") {
-        const metricStr = Object.entries(opt.metrics)
-          .filter(([, v]) => v != null)
-          .map(([k, v]) => `${k}: ${v}`)
-          .join(" • ");
-        desc = desc ? `${desc} (${metricStr})` : metricStr;
-      }
-      return {
-        id: String(opt.value || opt.id || opt.label),
-        label: String(opt.label || opt.name || opt.value),
-        description: desc,
-        badge: opt.badge || (opt.recommended ? "Recommended" : null),
-      };
-    });
-
-    if (options.length > 0) {
-      return {
-        type: "options",
-        id: block.field || createId(),
-        prompt: block.text || "Please select an option:",
-        select: block.interaction === "select_many" ? "multi" : "single",
-        options,
-        allowCustom: false,
-        status: "pending",
-      };
-    }
-  }
-  return textBlock(block.text);
-}
-
 /** Blocks when the server speaks them, else the legacy `reply` string. */
 function toReplyBlocks(payload: WireChatResponse): MessageBlock[] {
-  if (payload.blocks && Array.isArray(payload.blocks) && payload.blocks.length > 0) {
-    const converted = payload.blocks
-      .map(backendBlockToDomainBlock)
-      .filter((block): block is MessageBlock => block !== null);
-    if (converted.length > 0) {
-      return converted;
-    }
-  }
   const blocks = (payload.message?.content ?? [])
     .map(toDomainBlock)
     .filter((block): block is MessageBlock => block !== null);
   if (blocks.length) return blocks;
   return payload.reply ? [textBlock(payload.reply)] : [];
-}
-
-/** Convert the always-present plan_state map to the planRows array format. */
-function extractPlanState(
-  payload: WireChatResponse,
-): Array<{ label: string; value: string; field: string }> | undefined {
-  const planState = payload.plan_state;
-  if (!planState || Object.keys(planState).length === 0) return undefined;
-
-  // Label map matching the Strategy Schema sections.
-  const LABELS: Record<string, string> = {
-    brand: "Brand",
-    markets: "Markets",
-    flight_dates: "Flight",
-    durations: "Creative durations",
-    market_budgets: "Budget",
-    goal: "Goal",
-    kpi: "KPI",
-    bid: "Bid",
-    inventory: "CTV inventory",
-    audience: "Audience profile",
-    targeting: "Targeting",
-  };
-
-  return Object.entries(planState)
-    .filter(([field]) => field in LABELS)
-    .map(([field, value]) => ({
-      field,
-      label: LABELS[field] ?? field,
-      value,
-    }));
 }
 
 function toWireBlock(block: UserBlock): WireBlock {
@@ -264,7 +152,9 @@ export function createHttpAgentClient(
     baseUrl: cfg.apiBaseUrl,
     timeoutMs: cfg.requestTimeoutMs,
     fetchImpl: options.fetchImpl,
+    accessToken: options.accessToken,
   });
+  const advertiserId = options.advertiserId ?? cfg.advertiserId;
 
   // TEMP: minted locally because the endpoint that issues a session id isn't
   // live yet. Swap for the server-issued id once that lands.
@@ -285,12 +175,16 @@ export function createHttpAgentClient(
         content: request.content.map(toWireBlock),
       };
 
+      if (!advertiserId) {
+        throw new Error("VOW Agent requires an advertiser ID from its host.");
+      }
+
       let payload: WireChatResponse;
       try {
         payload = await http.request<WireChatResponse>("/sessions/chat", {
           method: "POST",
           body,
-          headers: { "Vowmade-Advertiser-Id": ADVERTISER_ID },
+          headers: { "Vowmade-Advertiser-Id": advertiserId },
           signal: sendOptions?.signal,
         });
       } catch (cause) {
@@ -304,7 +198,7 @@ export function createHttpAgentClient(
         resolvedElicitations: (payload.resolved_elicitations ?? []).map(
           toOptionsBlock,
         ),
-        planRows: extractPlanState(payload),
+        planState: payload.plan_state ?? null,
       };
     },
   };

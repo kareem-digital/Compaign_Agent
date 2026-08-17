@@ -1,0 +1,44 @@
+Act as a Senior AI Engineer & LangGraph Architect.
+
+Project: M1 Strategy Plan Implementation — Interactive Development Plan
+
+Context & Workspace Assets:
+1. Available Codebase & Reference Materials:
+   - Registries, validation rules, MCP tools, and mock data exist in the repository.
+   - Core Architecture & References: Review `docs/Workflow.jpeg`, flowcharts, and M1 UI design screens located in the root `docs/` folder (outside frontend and backend) so that logic, flow, and UI components match 1:1.
+   - API Contracts: Review `backend/API CONTRACT/*.json` for strict schema definitions.
+   - State & Tracing: Every turn tracks conversation state and history using `session_id` and `client_message_id`.
+
+2. Environment Setup & Isolation:
+   - Check both frontend and backend configurations for required dependencies and install them.
+   - Ensure backend Python dependencies are strictly installed inside an isolated virtual environment (`venv`/`virtualenv`), never globally.
+
+3. Deep UI Component & JSON Contract Analysis:
+   - Inspect the `options` field inside `backend/API CONTRACT/*.json` and match it against the UI components built by the frontend team.
+   - Analyze UI response modes: single-select (radio), multi-select (checkboxes), data tables, cards, structured lists, skip triggers, and confirmation dialogs.
+   - The agent must intelligently determine which UI widget format to render based on conversation state and data type.
+
+4. Domain Rules & Conversational Logic (M1 Workflow Details):
+   - Rate Card vs. Deals: Deal options are not enabled yet—use Rate Cards. Once basic parameters (market, flight dates, creative duration, etc.) are gathered:
+     * If a user chooses Prime Video with a 10s duration, fetch and surface the 10s Rate Card for confirmation; if 20s, show the 20s Rate Card; if Netflix, surface the corresponding Netflix Rate Card dynamically.
+     * Once confirmed, compute projected Reach & Frequency based on selected duration rate and total budget using the formula specified in `docs/`.
+   - Dynamic Budget Splitting: Proactively guide the user on allocating budget across channels/tactics (e.g., 50/50 split or custom allocations) and confirm user satisfaction before locking.
+   - Targeting Sub-Flow: Handle demographic targeting (age, household income, geos) cleanly as illustrated in the `docs/` flowcharts and M1 UI screens.
+
+Objective & Plan Request:
+Do not write or modify production code yet. First, inspect all referenced artifacts (diagrams, UI mockups, API contracts, registries, mock data, and dependencies) and deliver a complete, highly structured implementation plan covering:
+
+1. Inventory & Artifact Breakdown:
+   - What data, tools, validation logic, and UI components are available across `docs/`, `backend/`, and `frontend/`.
+   - Direct mapping of JSON contracts to interactive UI components (single/multi-select, tables, cards, lists, skip/confirm actions).
+2. LangGraph Architecture & Graph Topology:
+   - Define the graph state schema, node responsibilities (e.g., Basic Details, Rate Card/Inventory, Budget Split, Targeting), conditional edges, and persistence (`session_id`/`client_message_id`).
+3. Conversational Logic & Probing Strategy:
+   - How the graph handles one-shot extraction vs. multi-turn interactive probing.
+   - How the agent orchestrates Rate Card lookups, Reach/Frequency calculations, Budget Splitting, and Demographic Targeting based on user input.
+4. Grounding & Guardrails:
+   - How the agent strictly binds responses to registries, MCP tools, and mock data without hallucinations.
+5. Phased Implementation Roadmap:
+   - Step-by-step roadmap to build, unit test, and validate each node and contract before connecting to the frontend.
+
+Inspect the workspace artifacts and present your detailed architectural plan first.

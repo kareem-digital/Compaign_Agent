@@ -300,10 +300,26 @@ def make_select_inventory(registry: AdvertiserRegistry):
                 ),
             )
 
+        matched_rate_cards = [
+            {
+                "provider": d["provider"],
+                "name": d.get("name"),
+                "cpm": d["cpm"],
+                "ad_lengths": d.get("ad_lengths", []),
+                "matched_durations": [x for x in durations if x in d.get("ad_lengths", [])] if durations else d.get("ad_lengths", []),
+                "tier": d.get("inventory_tier"),
+                "deal_type": d.get("deal_type"),
+                "genre": d.get("genre"),
+            }
+            for d in deals
+        ]
+
         return {
             "current_stage": STAGE,
             # Records that this stage has run, so the next turn moves on.
             "stage_cursor": "inventory",
+            "inventory_type": "RATE_CARD",
+            "matched_rate_cards": matched_rate_cards,
             "selected_deals": deals,
             "inventory_tier": tier.value if tier else None,
             # What this market carries that the trader did not name, so a UI can

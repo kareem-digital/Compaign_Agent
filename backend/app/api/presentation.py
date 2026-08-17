@@ -167,10 +167,33 @@ _ANSWERED_BY = {
 def _is_answered(field: str, state: dict) -> bool:
     """Whether the plan already holds an answer for one ask.
 
-    Answered means every key the field needs is present, so a half-given flight
-    still counts as outstanding - a date range with one end is not an answer.
+    Answered means either the raw slots or composite objects are present and valid,
+    so derived objects like flight_dates or market_budgets are recognized.
     """
-    return all(state.get(key) for key in _ANSWERED_BY[field])
+    if field == "markets":
+        return bool(state.get("markets") or state.get("market"))
+    if field == "flight_dates":
+        return bool(
+            (state.get("flight_start") and state.get("flight_end"))
+            or (
+                state.get("flight_dates")
+                and isinstance(state.get("flight_dates"), dict)
+                and state.get("flight_dates", {}).get("lower")
+                and state.get("flight_dates", {}).get("upper")
+            )
+        )
+    if field == "durations":
+        return bool(state.get("durations"))
+    if field == "market_budgets":
+        return bool(
+            state.get("budget_amount")
+            or (
+                state.get("market_budgets")
+                and isinstance(state.get("market_budgets"), list)
+                and any(isinstance(b, dict) and b.get("budget") for b in state.get("market_budgets", []))
+            )
+        )
+    return False
 
 
 def _ask_for(field: str, state: dict) -> Block | None:
@@ -228,25 +251,18 @@ def _ask_for(field: str, state: dict) -> Block | None:
 
 
 def input_blocks(state: dict) -> list[Block]:
-    """One block per field the plan still needs.
+    """Single focal block for the current outstanding ask.
 
-    Asks for everything outstanding at once rather than one field per turn.
-    Drip-feeding would be four round trips to start a plan - the wizard
-    experience the agent exists to replace.
+    Focuses the UI on the single next decision the agent is currently asking for,
+    ensuring interactive option chips align 1:1 with the conversational turn.
     """
-    blocks = [
-        block
-        for field in _ASK_ORDER
-        if not _is_answered(field, state)
-        if (block := _ask_for(field, state)) is not None
-    ]
-
-    # The first thing asked is the one to put front and centre, so an interface
-    # has an obvious focal point rather than three equal inputs.
-    if blocks:
-        blocks[0].primary = True
-
-    return blocks
+    for field in _ASK_ORDER:
+        if not _is_answered(field, state):
+            block = _ask_for(field, state)
+            if block is not None:
+                block.primary = True
+                return [block]
+    return []
 
 
 # --- the plan ----------------------------------------------------------------
@@ -343,8 +359,12 @@ def inventory_block(state: dict) -> Block | None:
                     ),
                     # Carried per row so the interface can warn on the row
                     # itself rather than in a footnote nobody reads.
-                    "note": tiers.get(deal["inventory_tier"], {}).get("note", ""),
-                    "selected": True,
+                    "note": tiers.get(deal.get("inventory_tier", ""), {}).get("note", ""),
+                    "selected": (
+                        (deal["provider"] in preferred)
+                        if preferred
+                        else (deal.get("inventory_tier") == "AMAZON_OWNED")
+                    ),
                 }
                 for deal in deals
             ],
@@ -434,6 +454,43 @@ def forecast_block(state: dict) -> Block | None:
     )
 
 
+def targeting_block(state: dict) -> Block | None:
+    """Targeting decision block: keep baseline default or refine."""
+    market = (state.get("markets") or ["GB"])[0]
+    return Block(
+        text="Your core campaign details are complete. Would you like to keep default targeting or refine?",
+        interaction=Interaction.SELECT_ONE,
+        layout=Layout.CHIPS,
+        primary=True,
+        field="targeting_decision",
+        data={
+            "options": [
+                {
+                    "value": "keep_default",
+                    "label": "Keep Default Targeting",
+                    "description": f"{market} Nationwide, Connected TV, broad audience",
+                    "badge": "Recommended",
+                },
+                {
+                    "value": "refine_audience",
+                    "label": "Add Audience & Demographics",
+                    "description": "Target by age cohorts, gender, household income, or lifestyle",
+                },
+                {
+                    "value": "refine_location",
+                    "label": "Refine Geographic Location",
+                    "description": "Specific cities (e.g. London), postal codes, or custom radius",
+                },
+                {
+                    "value": "refine_all",
+                    "label": "Full Custom Targeting",
+                    "description": "Configure demographics, locations, device types and exclusions",
+                },
+            ]
+        },
+    )
+
+
 # --- the whole reply ---------------------------------------------------------
 
 
@@ -446,6 +503,7 @@ def forecast_block(state: dict) -> Block | None:
 # text channel rather than being dressed up as a plan.
 _STAGE_BLOCKS = {
     "inventory": (inventory_block,),
+    "targeting": (targeting_block,),
     "audiences": (audience_block,),
     "forecast": (forecast_block,),
     # The structured mirror of what `deliver_plan` consolidates in prose. The

@@ -375,7 +375,7 @@ def test_validation_blocks_on_an_error_and_passes_a_warning() -> None:
 def test_the_inventory_dead_end_still_ends_the_turn() -> None:
     """It asked its own, better question; `ask` would only add a vaguer one."""
     assert route_after_inventory({"awaiting": [NO_INVENTORY]}) == "end"
-    assert route_after_inventory({}) == "suggest_audiences"
+    assert route_after_inventory({}) == "collect_targeting"
     assert route_after_inventory({"awaiting": ["the budget"]}) == "ask"
 
 
@@ -410,3 +410,55 @@ def test_a_blocker_overrides_the_audience_shortcut() -> None:
     }
 
     assert route_after_audiences(state) == "ask"
+
+
+def test_route_planner_dispatches_properly() -> None:
+    from app.agent.gates import route_planner
+
+    # 1. Missing market -> ask
+    assert route_planner({}) == "ask"
+
+    # 2. Market present, basics missing -> ask
+    assert route_planner({"markets": ["GB"]}) == "ask"
+
+    # 3. All basics present, no inventory -> select_inventory
+    basics_done = {
+        "markets": ["GB"],
+        "flight_start": "2099-08-01",
+        "flight_end": "2099-08-31",
+        "flight_dates": {"lower": "2099-08-01", "upper": "2099-08-31"},
+        "durations": ["30"],
+        "budget_amount": "50000.00",
+        "market_budgets": [{"market": "GB", "budget": "50000.00"}],
+    }
+    assert route_planner(basics_done) == "select_inventory"
+
+    # 4. Inventory done, targeting unconfirmed -> collect_targeting
+    inv_done = {
+        **basics_done,
+        "selected_deals": [{"deal_id": "D1", "provider": "Prime Video"}],
+    }
+    assert route_planner(inv_done) == "collect_targeting"
+
+    # 5. Targeting confirmed, no audience -> suggest_audiences
+    tgt_done = {
+        **inv_done,
+        "targeting_confirmed": True,
+    }
+    assert route_planner(tgt_done) == "suggest_audiences"
+
+    # 6. Audience chosen, no forecast -> predict_reach
+    aud_done = {
+        **tgt_done,
+        "audience_options": [{"profile": "BALANCED"}],
+        "chosen_audience": {"profile": "BALANCED"},
+    }
+    assert route_planner(aud_done) == "predict_reach"
+
+    # 7. Forecast present -> deliver_plan
+    delivered = {
+        **aud_done,
+        "forecast": {"estimated_impressions": 1000000},
+    }
+    assert route_planner(delivered) == "deliver_plan"
+

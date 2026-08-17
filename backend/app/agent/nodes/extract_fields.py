@@ -53,6 +53,7 @@ _MARKET_PATTERNS = {
     "US": r"\b(us|u\.s\.|usa|united states|america|american)\b",
     "FR": r"\b(france|french|fr)\b",
     "DE": r"\b(germany|german|de)\b",
+    "CN": r"\b(china|chinese|cn)\b",
 }
 
 # Reference data, so it comes from the registry rather than being restated here.
@@ -155,7 +156,7 @@ def _audience_profile(text: str) -> str | None:
 
 
 def _budget(text: str) -> tuple[str | None, str | None]:
-    """Return (amount, currency_from_symbol). Handles '£50,000', '50k', '1.2m'."""
+    """Return (amount, currency_from_symbol). Handles '£50,000', '50k', '1.2m', '15000 GBP'."""
     for pattern in _BUDGET_PATTERNS:
         match = re.search(pattern, text, re.I)
         if not match:
@@ -167,6 +168,13 @@ def _budget(text: str) -> tuple[str | None, str | None]:
             amount *= 1_000 if suffix.lower() == "k" else 1_000_000
 
         return f"{amount:.2f}", _SYMBOL_CURRENCY.get(symbol or "")
+
+    # Check for number followed by currency code, e.g. "15000 GBP"
+    curr_match = re.search(r"\b([\d][\d,]*(?:\.\d+)?)\s*(gbp|usd|eur)\b", text, re.I)
+    if curr_match:
+        raw, curr = curr_match.groups()
+        amount = float(raw.replace(",", ""))
+        return f"{amount:.2f}", curr.upper()
 
     return None, None
 
@@ -206,7 +214,11 @@ def _flight_dates(text: str) -> tuple[str | None, str | None]:
         return None, None
 
     month = _MONTHS[match.group(1).lower()]
-    year = int(match.group(2)) if match.group(2) else date.today().year
+    today = date.today()
+    if match.group(2):
+        year = int(match.group(2))
+    else:
+        year = today.year if month >= today.month else today.year + 1
     last = calendar.monthrange(year, month)[1]
     return f"{year:04d}-{month:02d}-01", f"{year:04d}-{month:02d}-{last:02d}"
 
@@ -222,12 +234,6 @@ def _extract_with_patterns(text: str) -> BriefFields:
         flight_end=end,
         durations=_durations(text),
         budget_amount=amount,
-        # Only what the symbol says. This used to fall back to the market's usual
-        # currency, which meant every turn naming a market restated a currency -
-        # overwriting one the trader had deliberately chosen. "Back to the UK"
-        # silently turned a USD budget into GBP. `_merge` still derives from the
-        # market when nothing is known, which is where that belongs: a fallback for
-        # the unknown, not an answer that outranks the trader's.
         currency=symbol_currency,
         audience_profile=_audience_profile(text),
         providers=reference.provider_from_text(text),
@@ -238,13 +244,7 @@ def _extract_with_patterns(text: str) -> BriefFields:
 
 
 def _known_summary(state: PlanningAgentState) -> str:
-    """What the model is told is already established.
-
-    Read off the raw slots, not the derived fields. Reading `market_budgets` here
-    meant an amount given before a market was reported as `unknown` on every
-    later turn, so the model dutifully asked for it again - the same forgetting
-    the pattern path had, by the same cause.
-    """
+    """What the model is told is already established."""
     return "\n".join(
         [
             f"markets: {state.get('markets') or 'unknown'}",
@@ -259,26 +259,29 @@ def _known_summary(state: PlanningAgentState) -> str:
     )
 
 
-_SYSTEM = (
-    "Extract connected-TV campaign details from a trader's message.\n"
-    "You are given what is already known and the trader's latest message.\n"
-    "Return the COMPLETE updated set: carry forward anything still true, apply "
-    "any correction the message makes, and add anything new.\n"
-    f"Rules: markets are ISO country codes. Durations may only be {_DURATION_PHRASE}. "
-    "Dates are ISO YYYY-MM-DD; a bare month means its first and last day. "
-    "Budget is a decimal string with no symbol. Leave a field empty if it is "
-    "genuinely unknown - never guess a value the trader did not give."
-)
+def _system_prompt() -> str:
+    """Dynamic system prompt carrying today's date."""
+    today_str = date.today().isoformat()
+    return (
+        f"TODAY IS {today_str}.\n"
+        "Extract connected-TV campaign details from a trader's message.\n"
+        "You are given what is already known and the trader's latest message.\n"
+        "Return the COMPLETE updated set: carry forward anything still true, apply "
+        "any correction the message makes, and add anything new.\n"
+        f"Rules: markets are ISO country codes. Durations may only be {_DURATION_PHRASE}. "
+        "Dates are ISO YYYY-MM-DD. A month with no year means the NEXT TIME IT OCCURS, never the one just gone. "
+        "If the trader states a specific year (including a past year, e.g. 2023), RETURN IT EXACTLY AS GIVEN — "
+        "do not keep the previous value or sanitise it. "
+        "Budget is a decimal string with no symbol. Leave a field empty if it is "
+        "genuinely unknown - never guess a value the trader did not give."
+    )
 
 
 async def _extract_with_llm(llm, text: str, state: PlanningAgentState) -> BriefFields:
     prompt = f"Already known:\n{_known_summary(state)}\n\nLatest message:\n{text}"
 
-    # include_raw so a parse failure comes back as `parsing_error` rather than
-    # raising inside langchain - the caller turns that into the pattern-matching
-    # fallback, and an exception from here would skip it.
     response = await llm.with_structured_output(BriefFields, include_raw=True).ainvoke(
-        [{"role": "system", "content": _SYSTEM}, {"role": "user", "content": prompt}]
+        [{"role": "system", "content": _system_prompt()}, {"role": "user", "content": prompt}]
     )
 
     parsed = response.get("parsed")
@@ -375,7 +378,10 @@ def _confirmation(fields: PlanningAgentState) -> str:
     )
 
 
-# --- the node ----------------------------------------------------------------
+def get_llm():
+    """Retrieve LLM dynamically, allowing both module and package-level monkeypatching."""
+    from app.agent import llm as llm_mod
+    return llm_mod.get_llm()
 
 
 async def extract_fields(state: PlanningAgentState) -> PlanningAgentState:

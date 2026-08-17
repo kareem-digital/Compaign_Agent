@@ -1,9 +1,8 @@
-import { DateRangePickerCard } from "@/components/chat/DateRangePickerCard";
 import { OptionsBlockCard } from "@/components/chat/OptionsBlockCard";
 import { BrandMark } from "@/components/icons";
 import type { ElicitationSubmission } from "@/hooks/use-chat";
 import { resolveAnswerLabels, type DraftSelection } from "@/lib/chat";
-import type { ChatMessage } from "@/types/chat";
+import type { ChatMessage, OptionsBlock } from "@/types/chat";
 
 const COPY = { recorded: "Selection recorded" } as const;
 
@@ -14,7 +13,7 @@ interface MessageBubbleProps {
   /** The one question the user may answer, or null. */
   activeElicitationId: string | null;
   submissions: Record<string, ElicitationSubmission>;
-  onAnswer: (block: any, draft: DraftSelection) => void;
+  onAnswer: (block: OptionsBlock, draft: DraftSelection) => void;
 }
 
 /**
@@ -41,10 +40,7 @@ export function MessageBubble({
         if (block.type === "text") return block.text;
         if (block.type !== "options_answer") return "";
         const { labels, customText } = resolveAnswerLabels(messages, block);
-        const parts = [
-          ...labels,
-          ...(customText && !labels.includes(customText) ? [customText] : []),
-        ];
+        const parts = [...labels, ...(customText ? [customText] : [])];
         return parts.length ? parts.join(", ") : COPY.recorded;
       })
       .filter(Boolean)
@@ -70,18 +66,6 @@ export function MessageBubble({
           if (block.type === "options") {
             return (
               <OptionsBlockCard
-                key={key}
-                block={block}
-                interactive={block.id === activeElicitationId}
-                submission={submissions[block.id]}
-                onAnswer={onAnswer}
-              />
-            );
-          }
-
-          if (block.type === "date_picker") {
-            return (
-              <DateRangePickerCard
                 key={key}
                 block={block}
                 interactive={block.id === activeElicitationId}

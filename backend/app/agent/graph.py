@@ -68,16 +68,19 @@ from app.agent.gates import (
     route_after_audiences,
     route_after_basics,
     route_after_inventory,
+    route_after_targeting,
     route_after_validation,
 )
 from app.agent.nodes import (
     ask_for_missing,
     deliver_plan,
     extract_fields,
+    make_collect_targeting,
     make_predict_reach,
     make_select_inventory,
     make_suggest_audiences,
     make_validate_basics,
+    planner_node,
 )
 from app.agent.state import PlanningAgentState
 from app.knowledge.registry import AdvertiserRegistry
@@ -116,8 +119,10 @@ def build_graph(
     graph = StateGraph(PlanningAgentState)
 
     graph.add_node("extract_fields", extract_fields)
+    graph.add_node("planner", planner_node)
     graph.add_node("validate_basics", make_validate_basics(registry))
     graph.add_node("select_inventory", make_select_inventory(registry))
+    graph.add_node("collect_targeting", make_collect_targeting(registry, mcp))
     graph.add_node("suggest_audiences", make_suggest_audiences(registry))
     graph.add_node("predict_reach", make_predict_reach(mcp))
     graph.add_node("deliver_plan", deliver_plan)
@@ -142,9 +147,11 @@ def build_graph(
     graph.add_conditional_edges(
         "select_inventory",
         route_after_inventory,
-        # "end" is the dead-end path: the node has already explained why nothing
-        # matched and asked what to change, so `ask` would only add a weaker
-        # duplicate of that question.
+        {"ask": "ask", "collect_targeting": "collect_targeting", "end": END},
+    )
+    graph.add_conditional_edges(
+        "collect_targeting",
+        route_after_targeting,
         {"ask": "ask", "suggest_audiences": "suggest_audiences", "end": END},
     )
     graph.add_conditional_edges(

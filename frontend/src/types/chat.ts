@@ -49,15 +49,7 @@ export interface OptionsBlock {
   answer?: ElicitationAnswer | null;
 }
 
-export interface DatePickerBlock {
-  type: "date_picker";
-  id: string;
-  prompt: string;
-  earliest?: string;
-  status: ElicitationStatus;
-  answer?: ElicitationAnswer | null;
-}
-
+/** A recorded answer as it appears in the user's own turn. IDs only. */
 export interface OptionsAnswerBlock {
   type: "options_answer";
   elicitationId: string;
@@ -65,7 +57,7 @@ export interface OptionsAnswerBlock {
   customText?: string | null;
 }
 
-export type MessageBlock = TextBlock | OptionsBlock | OptionsAnswerBlock | DatePickerBlock;
+export type MessageBlock = TextBlock | OptionsBlock | OptionsAnswerBlock;
 
 /** Blocks a user turn can carry. */
 export type UserBlock = TextBlock | OptionsAnswerBlock;

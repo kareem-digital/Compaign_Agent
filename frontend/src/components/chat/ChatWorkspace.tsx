@@ -4,7 +4,7 @@ import { WorkspaceHeader } from "@/components/layout";
 import type { ElicitationSubmission } from "@/hooks/use-chat";
 import type { DraftSelection } from "@/lib/chat";
 import { cn } from "@/lib/utils";
-import type { ChatMessage, DatePickerBlock, OptionsBlock } from "@/types/chat";
+import type { ChatMessage, OptionsBlock } from "@/types/chat";
 import type { StrategyPlan } from "@/types/strategy";
 
 const COPY = {
@@ -18,10 +18,10 @@ interface ChatWorkspaceProps {
   isSending: boolean;
   error: string | null;
   /** The one question the user may answer, or null. */
-  activeElicitation: OptionsBlock | DatePickerBlock | null;
+  activeElicitation: OptionsBlock | null;
   submissions: Record<string, ElicitationSubmission>;
   onSend: (value: string) => void;
-  onAnswer: (block: any, draft: DraftSelection) => void;
+  onAnswer: (block: OptionsBlock, draft: DraftSelection) => void;
   className?: string;
 }
 
@@ -46,11 +46,7 @@ export function ChatWorkspace({
   // else" field — the design gives the card no other affordance for it. Routing
   // it through `onAnswer` keeps the text tied to its elicitation on the wire
   // rather than arriving as an unrelated turn the server has to guess about.
-  const answerable =
-    activeElicitation?.type === "options" && activeElicitation.allowCustom
-      ? activeElicitation
-      : null;
-  const isConcluded = (plan.status as string) === "concluded";
+  const answerable = activeElicitation?.allowCustom ? activeElicitation : null;
   const submit = (value: string) =>
     answerable
       ? onAnswer(answerable, { optionIds: [], customText: value })
@@ -80,14 +76,8 @@ export function ChatWorkspace({
         )}
         <ChatInput
           onSend={submit}
-          disabled={isSending || isConcluded}
-          placeholder={
-            isConcluded
-              ? "Conversation concluded. Start a new session to plan another campaign."
-              : answerable
-                ? COPY.answerPlaceholder
-                : undefined
-          }
+          disabled={isSending}
+          placeholder={answerable ? COPY.answerPlaceholder : undefined}
         />
         <p className="text-center text-note text-base-content/50">
           {COPY.disclaimer}

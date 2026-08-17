@@ -28,7 +28,14 @@ class PlanningAgentState(TypedDict, total=False):
     # --- Session context ---
     advertiser_id: str
     session_id: str
+    client_message_id: str | None
+    plan_version: int
     current_stage: str
+
+    # --- Elicitation protocol ---
+    active_elicitations: list[dict]
+    resolved_elicitations: list[dict]
+    resolved_blocks: list[dict]
 
     # How this turn's basics were read: "llm", "patterns", or
     # "patterns_after_llm_failure". Carried so the validation record can say
@@ -66,12 +73,32 @@ class PlanningAgentState(TypedDict, total=False):
     # Providers the trader named, anywhere in the conversation. Empty means no
     # preference expressed, so the inventory stage should offer a choice rather
     # than confirm one.
+    inventory_type: str | None  # "RATE_CARD" (default) | "DEALS"
     preferred_providers: list[str]
     inventory_tier: str | None  # dominant tier, drives downstream branching
     selected_deals: list[dict]
+    matched_rate_cards: list[dict] | None  # duration-matched rate card entries
     # Providers available in this market that the trader did NOT choose, so a
     # confirmation can show the way out.
     inventory_alternatives: list[str]
+
+    # --- Targeting (step 3) ---
+    # Optional according to Strategy Schema / M1 scope. Defaults to baseline
+    # market targeting unless explicitly refined or specified.
+    targeting_enabled: bool | None
+    geo_targets: list[dict]  # [{"id": "GB-LND", "name": "Greater London"}]
+    location_include: list[str]  # Amazon geo location IDs (replaces country default)
+    location_exclude: list[str]  # Excluded Amazon geo location IDs
+    custom_radius: dict | None  # {"address": "London", "radius": 20.0, "unit": "miles", "amz_id": ...}
+    postcode_targeting: dict | None  # {"submitted": [...], "resolved": [...], "ambiguous": [...]}
+    demographics: dict | None  # {"age_groups": [...], "household_income": [...], "genders": [...], "household_type": [...], "interests": [...]}
+    device_types: list[str]  # ["CONNECTED_TV", "STREAMING_STICK", ...] (CONNECTED_TV required for CTV)
+    mobile_operating_systems: list[str]  # ["IOS", "ANDROID"] (valid only when MOBILE is in device_types)
+    content_rating_exclusions: list[str]  # ["NEWS_POLITICS", "SENSITIVE", ...]
+    instream_positions: list[str]  # ["PRE_ROLL", "MID_ROLL", "POST_ROLL"]
+    audience_segments: list[dict]  # VOW targeting segment IDs or selections
+    custom_targeting: dict | None
+    targeting_confirmed: bool  # True once trader confirms or skips
 
     # --- Audiences (step 4) ---
     audience_options: list[dict]  # always three: narrow / balanced / wide

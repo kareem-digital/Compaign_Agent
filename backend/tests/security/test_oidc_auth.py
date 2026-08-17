@@ -33,6 +33,7 @@ KID = "current-signing-key"
 
 def _settings() -> Settings:
     return Settings(
+        auth_mode="oidc",
         debug=False,
         vow_oidc_issuer=ISSUER,
         vow_agent_audience=AUDIENCE,

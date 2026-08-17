@@ -5,11 +5,9 @@ import { NavRail } from "@/components/layout";
 import { StrategyPanel } from "@/components/strategy";
 import { useChat } from "@/hooks/use-chat";
 import { AgentClientProvider, type AgentClient } from "@/lib/agent";
-import { DRAFT_PLAN } from "@/lib/strategy";
+import type { AccessTokenProvider } from "@/lib/auth";
+import { buildStrategyPlan } from "@/lib/strategy";
 import { cn } from "@/lib/utils";
-import type { StrategyPlan } from "@/types/strategy";
-
-const NOT_STATED = "not stated";
 
 /**
  * Minimal, self-contained shape mirrored by hand from the host's
@@ -40,6 +38,10 @@ export interface VowAgentWidgetProps {
    * environments; falls back to VITE_API_BASE_URL.
    */
   apiBaseUrl?: string;
+  /** Active VOW advertiser; sent separately from the user's bearer token. */
+  advertiserId?: string;
+  /** Optional host-managed bearer provider; defaults to the MFE's PKCE flow. */
+  accessToken?: AccessTokenProvider;
   /** Escape hatch: a host may supply its own transport implementation. */
   agentClient?: AgentClient;
   /** Logged-in host-app user, null/undefined when unauthenticated. Not yet
@@ -49,128 +51,9 @@ export interface VowAgentWidgetProps {
 }
 
 /**
- * Derives a live StrategyPlan from the backend's summary_list rows.
- * The panel reads real brand, markets, dates, etc. as the agent collects them —
- * no more static "Mega Toothpaste" placeholder disagreeing with the chat.
- */
-function buildLivePlan(
-  planRows: Array<{ label: string; value: string; field: string }>,
-  stage: string | null | undefined,
-): StrategyPlan {
-  if (planRows.length === 0) return DRAFT_PLAN;
-
-  const get = (field: string) =>
-    planRows.find((r) => r.field === field)?.value ?? null;
-
-  const brand = get("brand");
-  const markets = get("markets");
-  const flight = get("flight_dates");
-  const durations = get("durations");
-  const budget = get("market_budgets");
-  const goal = get("goal");
-  const kpi = get("kpi");
-  const bid = get("bid");
-  const inventory = get("inventory");
-  const audience = get("audience");
-  const targeting = get("targeting");
-
-  // Track completion across the 4 M1 stages
-  const basicFields = [brand, markets, flight, durations, budget];
-  const knownBasics = basicFields.filter(
-    (v) => v !== null && v !== NOT_STATED,
-  ).length;
-  const basicsComplete = knownBasics === basicFields.length;
-  const inventoryComplete = Boolean(inventory && inventory !== NOT_STATED);
-  const targetingComplete = Boolean(audience && audience !== NOT_STATED);
-  const isPlanReady = stage === "plan_ready" || stage === "approved";
-
-  let completion = Math.round((knownBasics / basicFields.length) * 40);
-  if (inventoryComplete) completion += 25;
-  if (targetingComplete) completion += 25;
-  if (isPlanReady) completion = 100;
-
-  const basicProperties = [
-    { label: "Brand", value: brand },
-    { label: "Markets", value: markets },
-    { label: "Flight", value: flight },
-    { label: "Creative", value: durations },
-    { label: "Budget", value: budget },
-  ];
-
-  const goalsProperties = [
-    { label: "Goal", value: goal },
-    { label: "KPI", value: kpi },
-    { label: "Bid", value: bid },
-  ];
-
-  const inventoryProperties = [
-    { label: "Inventory", value: inventory },
-    {
-      label: "Tier",
-      value: inventory
-        ? inventory.includes("Prime Video")
-          ? "Amazon-owned"
-          : "Pre-curated"
-        : null,
-    },
-  ];
-
-  const targetingProperties = [
-    { label: "Audience", value: audience },
-    { label: "Geo", value: targeting },
-  ];
-
-  return {
-    name: brand && brand !== NOT_STATED ? brand : "New strategy",
-    status: stage === "approved" ? "approved" : "draft",
-    completion,
-    stages: [
-      {
-        id: "basic-details",
-        title: "Basic details",
-        status: basicsComplete ? "complete" : "in-progress",
-        isOpen: !basicsComplete,
-        properties: basicProperties,
-      },
-      {
-        id: "goals",
-        title: "Goals, KPI & bid",
-        status: goal && goal !== NOT_STATED ? "complete" : "next",
-        isOpen: false,
-        properties: goalsProperties,
-      },
-      {
-        id: "inventory",
-        title: "CTV inventory",
-        status: inventoryComplete
-          ? "complete"
-          : basicsComplete
-            ? "in-progress"
-            : "pending",
-        isOpen: basicsComplete && !inventoryComplete,
-        properties: inventoryProperties,
-      },
-      {
-        id: "targeting",
-        title: "Targeting",
-        status: targetingComplete
-          ? "complete"
-          : inventoryComplete
-            ? "in-progress"
-            : "optional",
-        isOpen: inventoryComplete && !targetingComplete,
-        properties: targetingProperties,
-      },
-    ],
-    lockedStages: DRAFT_PLAN.lockedStages,
-    forecast: null,
-  };
-}
-
-/**
  * Owns the conversation so it survives the start-screen → workspace swap, and
  * sits inside `AgentClientProvider` because `useChat` reads the transport from
- * it. The plan updates live from the backend's summary_list blocks.
+ * it. Dynamic plan is computed from real backend state.
  */
 function Workspace() {
   const {
@@ -178,7 +61,7 @@ function Workspace() {
     isSending,
     error,
     stage,
-    planRows,
+    planState,
     activeElicitation,
     submissions,
     send,
@@ -190,10 +73,9 @@ function Workspace() {
     draft,
   ) => void answerElicitation(block, draft);
 
-  // Build a live plan from backend data; falls back to DRAFT_PLAN until first reply.
-  const livePlan = useMemo(
-    () => buildLivePlan(planRows, stage),
-    [planRows, stage],
+  const plan = useMemo(
+    () => buildStrategyPlan(planState, stage),
+    [planState, stage],
   );
 
   if (messages.length === 0) {
@@ -203,7 +85,7 @@ function Workspace() {
   return (
     <>
       <ChatWorkspace
-        plan={livePlan}
+        plan={plan}
         messages={messages}
         isSending={isSending}
         error={error}
@@ -212,7 +94,7 @@ function Workspace() {
         onSend={onSend}
         onAnswer={onAnswer}
       />
-      <StrategyPanel plan={livePlan} />
+      <StrategyPanel plan={plan} />
     </>
   );
 }
@@ -226,6 +108,8 @@ export function VowAgentWidget({
   className,
   theme,
   apiBaseUrl,
+  advertiserId,
+  accessToken,
   agentClient,
   user,
 }: VowAgentWidgetProps) {
@@ -239,7 +123,12 @@ export function VowAgentWidget({
   }, [user]);
 
   return (
-    <AgentClientProvider client={agentClient} apiBaseUrl={apiBaseUrl}>
+    <AgentClientProvider
+      client={agentClient}
+      apiBaseUrl={apiBaseUrl}
+      advertiserId={advertiserId}
+      accessToken={accessToken}
+    >
       <section
         data-theme={theme}
         className={cn(

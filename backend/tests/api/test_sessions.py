@@ -70,7 +70,11 @@ def _thread(session: str) -> str:
     each other's conversation. A test reaching into the checkpointer has to use
     the same key the endpoint wrote under, or it silently reads an empty state.
     """
-    return f"{TEST_SUBJECT}:{HEADERS['Vowmade-Advertiser-Id']}:{session}"
+    from app.config import get_settings
+
+    settings = get_settings()
+    subject = settings.local_auth_subject if settings.environment == "local" else TEST_SUBJECT
+    return f"{subject}:{HEADERS['Vowmade-Advertiser-Id']}:{session}"
 
 
 def _chat(client, message: str, session: str) -> dict:

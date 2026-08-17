@@ -222,10 +222,10 @@ async def render_turn(
             ),
         )
         return source
-    except Exception:
+    except Exception as exc:
         # A model outage must not cost the trader their plan. Same discipline as
         # `ask_for_missing`: the deterministic text was always going to be there.
-        logger.warning("voice.failed", extra=kv(stage=stage), exc_info=True)
+        logger.warning("voice.failed", extra=kv(stage=stage, error=str(exc)))
         return source
 
     elapsed_ms = int((time.monotonic() - started) * 1000)

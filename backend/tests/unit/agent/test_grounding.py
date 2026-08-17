@@ -28,12 +28,29 @@ from __future__ import annotations
 import pytest
 
 from app.agent.gates import BASICS
-from app.agent.nodes.extract_fields import _grounding, make_extract_fields
+from app.agent.nodes.validate_basics import make_validate_basics
 from app.knowledge.registry import AdvertiserRegistry
 from app.tools.mcp.mock import MockMCPClient
 
 LABELS = [label for _key, label in BASICS]
 MARKET_LABEL, FLIGHT_LABEL, DURATIONS_LABEL, BUDGET_LABEL = LABELS
+
+
+async def _grounding(registry: AdvertiserRegistry, state: dict):
+    node = make_validate_basics(registry)
+    res = await node(state)
+    errors = res.get("validation_errors") or []
+    blocking_msgs = [
+        e.get("message", "")
+        for e in errors
+        if not e.get("is_valid") and e.get("severity") == "error"
+    ]
+    warning_msgs = [
+        e.get("message", "")
+        for e in errors
+        if e.get("is_valid") or e.get("severity") == "warning"
+    ]
+    return blocking_msgs, warning_msgs, []
 
 
 @pytest.fixture
@@ -55,7 +72,7 @@ def _fields(**extra) -> dict:
 
 @pytest.fixture(autouse=True)
 def _no_llm_in_unit_tests(monkeypatch):
-    monkeypatch.setattr("app.agent.nodes.extract_fields.get_llm", lambda: None)
+    monkeypatch.setattr("app.agent.llm.get_llm", lambda: None)
 
 
 def _turn(text: str, **state) -> dict:

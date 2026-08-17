@@ -123,7 +123,7 @@ def _summary(state: PlanningAgentState) -> str:
             if budgets
             else "- Budget: not stated"
         ),
-        "- Goal: Awareness, measured on reach (fixed for CTV)",
+        f"- Goal: {(state.get('goal') or 'Awareness').capitalize()}, measured on {(state.get('kpi') or 'reach').lower()}",
         "",
         f"- Inventory: {len(deals)} deals, {_tier_label(state.get('inventory_tier'))}",
     ]

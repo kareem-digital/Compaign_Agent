@@ -207,12 +207,18 @@ export default defineConfig(({ command, mode }) => {
           cors: true,
           origin: `http://localhost:${REMOTE_PORT}`,
           proxy,
+          watch: {
+            usePolling: true,
+          },
         }
       : {
           port: DEV_PORT,
           // A host app on its own dev port fetches the remote from this origin.
           cors: true,
           proxy,
+          watch: {
+            usePolling: true,
+          },
         },
     preview: isRemote
       ? { port: REMOTE_PORT, strictPort: true, cors: true }

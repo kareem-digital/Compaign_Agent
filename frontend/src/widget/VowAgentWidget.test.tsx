@@ -180,7 +180,12 @@ describe("VowAgentWidget", () => {
     vi.stubGlobal("fetch", fetchImpl);
 
     const user = userEvent.setup();
-    render(<VowAgentWidget />);
+    render(
+      <VowAgentWidget
+        advertiserId="adv-1"
+        accessToken={async () => "access-token"}
+      />,
+    );
 
     await user.type(
       screen.getByLabelText("Message VOW Agent"),
@@ -188,7 +193,15 @@ describe("VowAgentWidget", () => {
     );
 
     expect(await screen.findByText("from the server")).toBeInTheDocument();
-    expect(fetchImpl).toHaveBeenCalled();
+    expect(fetchImpl).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer access-token",
+          "Vowmade-Advertiser-Id": "adv-1",
+        }),
+      }),
+    );
 
     vi.unstubAllGlobals();
   });

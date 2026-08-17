@@ -90,10 +90,8 @@ export function useChat() {
   const [status, setStatus] = useState<ChatStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [stage, setStage] = useState<PlanStage | null>(null);
+  const [planState, setPlanState] = useState<Record<string, string> | null>(null);
   const [submissions, setSubmissions] = useState<SubmissionMap>({});
-  const [planRows, setPlanRows] = useState<
-    Array<{ label: string; value: string; field: string }>
-  >([]);
 
   // The ref is authoritative: `answerElicitation` has to read the previous
   // attempt's idempotency key before the next render lands.
@@ -173,10 +171,7 @@ export function useChat() {
           createMessage("assistant", reply.content),
         ]);
         setStage(reply.stage ?? null);
-        // Update the strategy panel with fresh plan data from the summary block.
-        if (reply.planRows && reply.planRows.length > 0) {
-          setPlanRows(reply.planRows);
-        }
+        if (reply.planState) setPlanState(reply.planState);
         if (answered) dropSubmission(answered.elicitationId);
       } catch (cause) {
         // Cancellation is control flow — reset and unmount both abort.
@@ -281,7 +276,7 @@ export function useChat() {
     setError(null);
     setStatus("idle");
     setStage(null);
-    setPlanRows([]);
+    setPlanState(null);
     writeSubmissions(() => ({}));
   }, [writeSubmissions]);
 
@@ -296,7 +291,7 @@ export function useChat() {
     status,
     error,
     stage,
-    planRows,
+    planState,
     isSending: status === "sending",
     activeElicitation,
     submissions,

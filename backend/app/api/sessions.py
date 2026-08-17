@@ -1,7 +1,7 @@
 import logging
 import time
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
@@ -77,27 +77,81 @@ async def _get_graph(advertiser_id: str):
     return _graphs[advertiser_id]
 
 
+class WireContentBlock(BaseModel):
+    """A single block in the request content array sent by the frontend."""
+    type: str
+    text: str | None = None
+    elicitation_id: str | None = None
+    selected_option_ids: list[str] | None = None
+    custom_text: str | None = None
+
+
+class WireMessage(BaseModel):
+    """The structured message envelope the UI team's wire.ts expects."""
+    id: str
+    role: str = "assistant"
+    content: list[Any] = Field(default_factory=list)
+
+
 class ChatRequest(BaseModel):
-    message: str = Field(..., min_length=1, max_length=2000)
+    # Plain-text fallback — used when content[] is absent or has no text block.
+    message: str | None = Field(None, max_length=2000)
     session_id: str = Field(
         default_factory=lambda: str(uuid.uuid4()),
         description="Send the same ID to continue a conversation; omit to start new.",
     )
+    # Idempotency key the frontend mints per turn (see wire.ts WireChatRequest).
+    client_message_id: str | None = Field(None)
+    # Structured blocks from the frontend (text + options_response blocks).
+    content: list[WireContentBlock] = Field(default_factory=list)
+
+    def plain_text(self) -> str:
+        """Extract the human-readable text the agent should process."""
+        parts: list[str] = []
+        for block in self.content:
+            if block.type == "text" and block.text:
+                parts.append(block.text)
+            elif block.type == "options_response":
+                if block.custom_text:
+                    parts.append(block.custom_text)
+                elif block.selected_option_ids:
+                    cleaned: list[str] = []
+                    for opt_id in block.selected_option_ids:
+                        val = opt_id.replace("opt_", "")
+                        if val in ("10", "15", "20", "30"):
+                            cleaned.append(f"{val} seconds")
+                        elif val.lower() in ("uk", "gb"):
+                            cleaned.append("United Kingdom")
+                        elif val.lower() in ("us", "usa"):
+                            cleaned.append("United States")
+                        elif val.lower() == "fr":
+                            cleaned.append("France")
+                        elif val.lower() == "de":
+                            cleaned.append("Germany")
+                        elif val.lower() in ("narrow", "balanced", "wide"):
+                            cleaned.append(f"{val} audience")
+                        else:
+                            cleaned.append(val.replace("_", " "))
+                    parts.append(", ".join(cleaned))
+        if parts:
+            return " ".join(parts)
+        # Fall back to the legacy `message` field.
+        return self.message or ""
 
 
 class ChatResponse(BaseModel):
     session_id: str
+    # Plain-text mirror — kept so nothing that reads only `reply` breaks.
     reply: str
     stage: str | None = Field(
         None, description="Stage the plan reached on this turn, e.g. 'forecast'."
     )
-    # Additive: `reply` is still the whole conversation, unchanged. This is the same
-    # turn's grounding structured, so a UI can render what failed, what VOW does
-    # sell instead and which snapshot said so, rather than parsing the prose for it.
+    # Structured message envelope — what wire.ts WireChatResponse.message maps to.
+    # The UI reads message.content[] for elicitation blocks; reply is the fallback.
+    message: WireMessage | None = Field(None)
+    # Grounding detail for the validation panel.
     validation: ValidationDetails
-    # Also additive, and the other half of the same idea: `validation` is what the
-    # backend *checked*, `blocks` is what the turn *shows*. Both describe the reply
-    # rather than replacing it, so a client can consume one, both or neither.
+    # Legacy presentation blocks — kept for backward compatibility.
     blocks: list[Block] = Field(
         default_factory=list,
         description=(
@@ -106,6 +160,14 @@ class ChatResponse(BaseModel):
             "the plain-text equivalent."
         ),
     )
+    # Plan field values formatted for the StrategyPanel — what wire.ts
+    # WireChatResponse.plan_state maps to. Keys are field names, values are
+    # human-readable strings already formatted by the backend.
+    plan_state: dict[str, str] = Field(default_factory=dict)
+    # Elicitations whose status changed this turn (answered / superseded).
+    resolved_elicitations: list[Any] = Field(default_factory=list)
+    resolved_blocks: list[Any] = Field(default_factory=list)
+    plan_version: int = 0
 
 
 class SessionState(BaseModel):
@@ -116,6 +178,7 @@ class SessionState(BaseModel):
     # Here as well as on `ChatResponse`, so reopening a session restores the panel
     # instead of leaving it blank until the trader says something else.
     validation: ValidationDetails
+    plan_state: dict[str, str] = Field(default_factory=dict)
 
 
 def _content(message) -> str:
@@ -156,17 +219,18 @@ async def chat(
     prior_count = len(prior.values.get("messages", [])) if prior and prior.values else 0
 
     started = time.monotonic()
+    user_text = request.plain_text()
     logger.info(
         "turn.start",
-        extra=kv(turn=(prior_count // 5) + 1, message_chars=len(request.message)),
+        extra=kv(turn=(prior_count // 5) + 1, message_chars=len(user_text)),
     )
     # The brief itself is client-commercial data, so content stays at DEBUG.
-    logger.debug("turn.message", extra=kv(text=request.message))
+    logger.debug("turn.message", extra=kv(text=user_text))
 
     try:
         result = await graph.ainvoke(
             {
-                "messages": [{"role": "user", "content": request.message}],
+                "messages": [{"role": "user", "content": user_text}],
                 "advertiser_id": advertiser_id,
                 "session_id": request.session_id,
             },
@@ -278,7 +342,7 @@ async def chat(
     # `gates.say` fingerprints and what the audit replays; see `agent.voice`.
     reply = await render_turn(
         replies,
-        trader_message=request.message,
+        trader_message=user_text,
         stage=result.get("current_stage"),
         # From state rather than from the prose: the providers worth protecting in
         # a rewrite are the ones the plan actually holds.
@@ -291,15 +355,89 @@ async def chat(
         ),
     )
 
+    # Build the plan_state dict: field name -> human-readable string.
+    # This is what the StrategyPanel reads via WireChatResponse.plan_state.
+    plan_state = _build_plan_state(result)
+
+    # Build the structured message envelope the UI team's wire.ts expects.
+    # content[] mirrors what blocks[] carries but in the elicitation-aware format.
+    presentation_blocks = build_blocks(result)
+    wire_content: list[Any] = []
+    if reply:
+        wire_content.append({"type": "text", "text": reply})
+    for block in presentation_blocks:
+        # Convert presentation Block to the wire options shape the frontend reads.
+        if block.interaction in ("select_one", "select_many", "confirm"):
+            raw_options = block.data.get("options") or []
+            if not raw_options and block.data.get("rows"):
+                raw_options = [
+                    {"value": row.get("value", row.get("provider", "")),
+                     "label": row.get("provider", row.get("label", "")),
+                     "description": (
+                         f'CPM: {row.get("cpm", "")}'
+                         + (f' · {row.get("lengths", "")}' if row.get("lengths") else "")
+                         + (f' · {row.get("tier", "")}' if row.get("tier") else "")
+                     ),
+                     "badge": "Amazon-owned" if "Amazon" in (row.get("tier") or "") else None}
+                    for row in block.data["rows"]
+                ]
+            wire_content.append({
+                "type": "options",
+                "id": f"elc_{block.field or block.layout}.{abs(hash(reply)) % 0xFFFFFFFF:08x}",
+                "prompt": block.text,
+                "select": "single" if block.interaction == "select_one" else "multi",
+                "allow_custom": False,
+                "allow_skip": False,
+                "allow_reopen": False,
+                "status": "pending",
+                "options": [
+                    {
+                        "id": f'opt_{str(o.get("value", o.get("label", ""))).lower().replace(" ", "_")}',
+                        "label": str(o.get("label", o.get("value", ""))),
+                        "description": o.get("description") or None,
+                        "badge": o.get("badge") or None,
+                    }
+                    for o in raw_options
+                ],
+                "answer": None,
+            })
+
+    wire_msg = WireMessage(
+        id=f"msg_{uuid.uuid4()}",
+        role="assistant",
+        content=wire_content,
+    )
+
+    # Build resolved_elicitations for any answered questions this turn
+    from datetime import datetime, timezone
+    resolved_elicitations: list[Any] = []
+    for block in request.content:
+        if block.type == "options_response" and block.elicitation_id:
+            resolved_elicitations.append({
+                "type": "options",
+                "id": block.elicitation_id,
+                "prompt": "",
+                "select": "multi" if len(block.selected_option_ids or []) > 1 else "single",
+                "options": [],
+                "status": "answered",
+                "answer": {
+                    "selected_option_ids": block.selected_option_ids or [],
+                    "custom_text": block.custom_text,
+                    "answered_at": datetime.now(timezone.utc).isoformat(),
+                },
+            })
+
     return ChatResponse(
         session_id=request.session_id,
         reply=reply,
         stage=result.get("current_stage"),
-        # Read off the state the graph just returned. Nothing is revalidated here -
-        # this is the outcome the nodes recorded, which is what the flow itself
-        # routed on.
+        message=wire_msg,
         validation=build_validation_details(result),
-        blocks=build_blocks(result),
+        blocks=presentation_blocks,
+        plan_state=plan_state,
+        resolved_elicitations=resolved_elicitations,
+        resolved_blocks=resolved_elicitations,
+        plan_version=int(result.get("plan_version", 0) or 0),
     )
 
 
@@ -342,4 +480,95 @@ async def get_session(
         stage=state.values.get("current_stage"),
         next_node=list(state.next) if state.next else None,
         validation=build_validation_details(state.values),
+        plan_state=_build_plan_state(state.values),
     )
+
+
+def _build_plan_state(state: dict) -> dict[str, str]:
+    """Map graph state fields -> human-readable strings for the StrategyPanel.
+
+    Keys match the LABELS dict in http-agent-client.ts so the frontend can
+    render them directly without any mapping logic of its own.
+    """
+    out: dict[str, str] = {}
+
+    if state.get("strategy_name"):
+        out["strategy_name"] = str(state["strategy_name"])
+    if state.get("advertiser_id"):
+        out["brand"] = f"Advertiser ({state['advertiser_id']})"
+
+    # Markets
+    markets = state.get("markets") or []
+    if markets:
+        out["markets"] = ", ".join(markets)
+
+    # Flight dates
+    flight_dates = state.get("flight_dates")
+    if flight_dates:
+        out["flight_dates"] = f'{flight_dates.get("lower", "")} to {flight_dates.get("upper", "")}'
+    elif state.get("flight_start"):
+        start = state.get("flight_start", "")
+        end = state.get("flight_end", "")
+        out["flight_dates"] = f"{start} to {end}" if end else start
+
+    # Creative durations
+    durations = state.get("durations") or []
+    if durations:
+        out["durations"] = ", ".join(f"{d}s" for d in durations)
+
+    # Budget
+    market_budgets = state.get("market_budgets") or []
+    currency = state.get("primary_currency") or ""
+    if market_budgets:
+        budget = market_budgets[0].get("budget", "")
+        out["market_budgets"] = f"{budget} {currency}".strip()
+    elif state.get("budget_amount"):
+        out["market_budgets"] = f'{state["budget_amount"]} {currency}'.strip()
+
+    # Goal & KPI
+    if state.get("goal"):
+        out["goal"] = str(state["goal"]).capitalize()
+    if state.get("kpi"):
+        out["kpi"] = str(state["kpi"]).capitalize()
+
+    # Inventory
+    deals = state.get("selected_deals") or []
+    if deals:
+        providers = list(dict.fromkeys(d.get("provider", "") for d in deals if d.get("provider")))
+        out["inventory"] = ", ".join(providers)
+    if state.get("inventory_tier"):
+        out["inventory_tier"] = str(state["inventory_tier"]).replace("_", " ").title()
+
+    # Audience
+    chosen = state.get("chosen_audience")
+    if chosen and chosen.get("profile"):
+        out["audience"] = str(chosen["profile"]).capitalize()
+
+    # Targeting
+    geo_targets = state.get("geo_targets") or []
+    if geo_targets:
+        out["targeting"] = ", ".join(t.get("name", t.get("id", "")) for t in geo_targets)
+    elif state.get("targeting_confirmed"):
+        out["targeting"] = "Market baseline (default)"
+
+    # Demographics
+    demographics = state.get("demographics")
+    if demographics and isinstance(demographics, dict):
+        parts = []
+        if demographics.get("genders"):
+            parts.append(", ".join(demographics["genders"]))
+        if demographics.get("age_groups"):
+            parts.append(f"Ages {', '.join(demographics['age_groups'])}")
+        if demographics.get("household_income"):
+            parts.append(f"HHI {', '.join(demographics['household_income'])}")
+        if demographics.get("interests"):
+            parts.append(f"Interests: {', '.join(demographics['interests'])}")
+        if parts:
+            out["demographics"] = " · ".join(parts)
+
+    # Devices
+    device_types = state.get("device_types") or []
+    if device_types:
+        out["devices"] = ", ".join(d.replace("_", " ").title() for d in device_types)
+
+    return out
